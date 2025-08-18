@@ -1,0 +1,10 @@
+services:
+  tiles_proxy_cache:
+    image: ${REGISTRY_HOST}/tiles_proxy_cache/${CI_COMMIT_BRANCH}
+    build:
+      context: ../src
+      additional_contexts:
+        docker: ../docker
+      dockerfile: ../docker/ruby/Dockerfile
+    ports:
+      - "7000:7000"

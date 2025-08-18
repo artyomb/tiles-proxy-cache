@@ -1,0 +1,10 @@
+World_Imagery:
+  path: "/wi/:z/:x/:y"
+  target: "https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+  tileSize: 256
+  minzoom: 1
+  maxzoom: 20
+  headers:
+  query_params:
+    # apikey: "asdasdasdasdasdasdsa"
+  mbtiles_file: "world_imagery.mbtiles" #sqlite DB

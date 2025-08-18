@@ -1,0 +1,9 @@
+--color
+--profile
+--require spec_helper.rb
+--format documentation -o ./spec/results/rspec.txt
+--format RspecJunitFormatter -o ./spec/results/rspec.xml
+--format html -o ./spec/results/rspec.html
+--format progress
+--format documentation
+# --warnings

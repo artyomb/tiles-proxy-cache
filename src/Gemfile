@@ -1,0 +1,32 @@
+source 'https://rubygems.org'
+
+gem 'sinatra'
+gem 'async'
+gem 'sequel'
+gem 'pg'
+gem 'sqlite3'
+
+gem 'rack', '~> 3.1.13'
+gem 'rackup', '~> 2.2.1'
+gem 'falcon'
+
+gem 'stack-service-base'
+#, path: '/home/user/projects/stack-service-base'
+
+gem 'ffi'
+gem 'faraday'
+# gem 'faraday-net_http'  # or just rely on the default adapter
+gem 'faraday-retry'
+gem 'faraday-net_http_persistent'
+
+group :test do
+  gem 'rspec'
+  gem 'rack-test'
+  gem 'rspec-benchmark'
+  gem 'rspec_junit_formatter'
+  gem 'async-rspec'
+
+  gem 'simplecov'
+  # gem 'simplecov-cobertura'
+  gem 'yard'
+end
