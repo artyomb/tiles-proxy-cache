@@ -1,6 +1,6 @@
 services:
   tiles_proxy_cache:
-    image: ${REGISTRY_HOST}/tiles_proxy_cache/${CI_COMMIT_BRANCH}
+    image: ${REGISTRY_HOST}/tiles_proxy_cache
     build:
       context: ../src
       additional_contexts:
