@@ -1,10 +1,90 @@
+# Example configuration for tiles-proxy-cache
+# Demonstrates various tile service configurations
+
+# Satellite imagery service
 World_Imagery:
   path: "/wi/:z/:x/:y"
-  target: "https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+  target: "https://example-satellite.com/imagery/tiles/{z}/{y}/{x}.png"
   tileSize: 256
   minzoom: 1
   maxzoom: 20
   headers:
+    User-Agent: "TileProxy/1.0"
   query_params:
-    # apikey: "asdasdasdasdasdasdsa"
-  mbtiles_file: "world_imagery.mbtiles" #sqlite DB
+    # apikey: "your-satellite-api-key"  # Optional API key
+  mbtiles_file: "world_imagery.mbtiles"
+
+# Topographic map service
+Topographic:
+  path: "/topo/:z/:x/:y"
+  target: "https://example-topo.com/maps/tiles/{z}/{y}/{x}.png"
+  tileSize: 256
+  minzoom: 1
+  maxzoom: 18
+  headers:
+  query_params:
+  mbtiles_file: "topographic.mbtiles"
+
+# Open source map service
+OSM:
+  path: "/osm/:z/:x/:y"
+  target: "https://example-osm.org/tiles/{z}/{x}/{y}.png"
+  tileSize: 256
+  minzoom: 1
+  maxzoom: 19
+  headers:
+    User-Agent: "TileProxy/1.0"  # Required by some services
+  query_params:
+  mbtiles_file: "openstreetmap.mbtiles"
+
+# Light theme map service
+CartoDB_Positron:
+  path: "/cartodb/:z/:x/:y"
+  target: "https://example-cartodb.com/light/{z}/{x}/{y}.png"
+  tileSize: 256
+  minzoom: 1
+  maxzoom: 18
+  headers:
+  query_params:
+  mbtiles_file: "cartodb_positron.mbtiles"
+
+# Custom service with authentication
+Custom_Service:
+  path: "/custom/:z/:x/:y"
+  target: "https://your-tile-service.com/tiles/{z}/{x}/{y}.png"
+  tileSize: 256
+  minzoom: 0
+  maxzoom: 22
+  headers:
+    Authorization: "Bearer your-access-token"
+    X-API-Version: "v2"
+  query_params:
+    apikey: "your-api-key"
+    format: "png"
+  mbtiles_file: "custom_service.mbtiles"
+
+# High-resolution tiles service
+High_Res_Tiles:
+  path: "/highres/:z/:x/:y"
+  target: "https://example-highres.com/tiles/{z}/{x}/{y}@2x.png"
+  tileSize: 512  # Larger tiles for high-res displays
+  minzoom: 1
+  maxzoom: 20
+  headers:
+    Accept: "image/png,image/webp"
+  query_params:
+    scale: "2x"
+  mbtiles_file: "high_res_tiles.mbtiles"
+
+# Vector tiles service
+Vector_Tiles:
+  path: "/vector/:z/:x/:y"
+  target: "https://example-vector.com/tiles/{z}/{x}/{y}.pbf"
+  tileSize: 256
+  minzoom: 1
+  maxzoom: 16
+  headers:
+    Accept: "application/x-protobuf"
+  query_params:
+    access_token: "your-vector-tiles-token"
+  mbtiles_file: "vector_tiles.mbtiles"
