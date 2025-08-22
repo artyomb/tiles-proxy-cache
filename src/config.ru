@@ -8,7 +8,7 @@ require 'yaml'
 
 StackServiceBase.rack_setup self
 
-ROUTES = YAML.load_file('config.yaml', symbolize_names: true)
+ROUTES = YAML.load_file('configs/tile-services.yaml', symbolize_names: true)
 
 require_relative 'gost.rb' if ENV['GOST']
 
