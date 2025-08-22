@@ -8,7 +8,9 @@ require 'yaml'
 
 StackServiceBase.rack_setup self
 
-ROUTES = YAML.load_file('configs/tile-services.yaml', symbolize_names: true)
+CONFIG_FOLDER = ENV['RACK_ENV'] == 'production' ? '/configs' : "#{__dir__}/configs"
+
+ROUTES = Dir["#{CONFIG_FOLDER}/*.{yaml,yml}"].map {YAML.load_file(_1, symbolize_names: true) }.reduce({}, :merge)
 
 require_relative 'gost.rb' if ENV['GOST']
 
