@@ -85,12 +85,6 @@ html
       |   font-size: 12px;
       |   font-family: 'Courier New', monospace;
       | }
-      | .description {
-      |   color: #a9b7c6;
-      |   font-size: 14px;
-      |   line-height: 1.5;
-      |   margin-top: 12px;
-      | }
       | .stats-grid {
       |   display: grid;
       |   grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
@@ -98,7 +92,6 @@ html
       |   margin-bottom: 20px;
       | }
       | .stat-box {
-      |   position: relative;
       |   background: linear-gradient(135deg, #313335 0%, #2b2b2b 100%);
       |   border: 1px solid #464749;
       |   padding: 12px;
@@ -111,11 +104,6 @@ html
       |   transform: translateY(-2px);
       |   box-shadow: 0 4px 8px rgba(0,0,0,0.2);
       |   border-color: #6a9955;
-      | }
-      | .stat-icon {
-      |   font-size: 20px;
-      |   margin-bottom: 6px;
-      |   display: block;
       | }
       | .stat-number {
       |   font-size: 24px;
@@ -156,17 +144,17 @@ html
       |   font-weight: bold;
       |   font-size: 16px;
       | }
-      | .source-status {
-      |   font-size: 11px;
-      |   padding: 4px 8px;
-      |   border-radius: 12px;
-      |   font-weight: bold;
-      | }
       | .info-grid {
-      |   display: grid;
-      |   grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-      |   gap: 12px;
-      |   margin-bottom: 16px;
+      |   display: flex;
+      |   flex-direction: column;
+      |   gap: 16px;
+      | }
+      | .info-header, .info-footer {
+      |   display: flex;
+      |   gap: 20px;
+      | }
+      | .info-header .info-item, .info-footer .info-item {
+      |   flex: 1;
       | }
       | .info-item {
       |   display: flex;
@@ -186,41 +174,26 @@ html
       |   font-size: 12px;
       |   word-break: break-all;
       | }
-      | .stats-row {
-      |   display: flex;
-      |   gap: 24px;
-      |   margin-bottom: 12px;
+      | .coverage-chart {
+      |   width: 100%;
+      |   background: #2b2b2b;
+      |   border: 1px solid #464749;
+      |   border-radius: 6px;
+      |   padding: 12px;
+      |   overflow: visible;
       | }
-      | .source-stats .stat-item {
-      |   display: flex;
-      |   flex-direction: column;
-      |   align-items: center;
-      |   gap: 4px;
+      | .coverage-chart svg {
+      |   width: 100%;
+      |   height: auto;
+      |   overflow: visible;
       | }
-      | .source-stats .stat-number {
-      |   font-size: 18px;
-      |   font-weight: bold;
-      |   color: #6897bb;
-      | }
-      | .source-stats .stat-label {
-      |   font-size: 10px;
-      |   color: #808080;
-      |   text-transform: uppercase;
-      |   letter-spacing: 0.5px;
-      | }
-      | .source-config {
+      | .global-config {
       |   background: #2b2b2b;
       |   border: 1px solid #555555;
       |   border-radius: 3px;
       |   padding: 12px;
-      |   margin-top: 12px;
+      |   margin-top: 8px;
       |   font-size: 11px;
-      | }
-      | .config-title {
-      |   color: #ffc66d;
-      |   font-weight: bold;
-      |   margin-bottom: 8px;
-      |   font-size: 13px;
       | }
       | .config-yaml pre {
       |   color: #a9b7c6;
@@ -230,14 +203,6 @@ html
       |   word-wrap: break-word;
       |   margin: 0;
       |   line-height: 1.3;
-      | }
-      | .global-config {
-      |   background: #2b2b2b;
-      |   border: 1px solid #555555;
-      |   border-radius: 3px;
-      |   padding: 12px;
-      |   margin-top: 8px;
-      |   font-size: 11px;
       | }
       | .header-buttons {
       |   display: flex;
@@ -258,8 +223,60 @@ html
           .version-info
             span.version = "v" + (ENV['ORG_OPENCONTAINERS_IMAGE_VERSION'] || '1.0.0')
       == yield
+    script src="https://d3js.org/d3.v7.min.js"
     script
       | function toggleGlobalConfig() {
       |   const config = document.getElementById('global-config');
       |   config.classList.toggle('hidden');
+      | }
+      | 
+      | function createCoverageChart(containerId, data) {
+      |   if (!data || data.length === 0) return;
+      | 
+      |   const container = document.getElementById(containerId);
+      |   const containerWidth = container.parentElement.offsetWidth - 48;
+      |   
+      |   const margin = {top: 20, right: 20, bottom: 30, left: 40};
+      |   const width = containerWidth - margin.left - margin.right;
+      |   const height = 200 - margin.top - margin.bottom;
+      | 
+      |   const svg = d3.select('#' + containerId)
+      |     .attr('width', width + margin.left + margin.right)
+      |     .attr('height', height + margin.top + margin.bottom)
+      |     .html('')
+      |     .append('g')
+      |     .attr('transform', 'translate(' + margin.left + ',' + margin.top + ')');
+      | 
+      |   const x = d3.scaleBand()
+      |     .range([0, width])
+      |     .domain(data.map(function(d) { return d.zoom; }))
+      |     .padding(0.1);
+      | 
+      |   const y = d3.scaleLinear()
+      |     .domain([0, 100])
+      |     .range([height, 0]);
+      | 
+      |   svg.append('g')
+      |     .attr('transform', 'translate(0,' + height + ')')
+      |     .call(d3.axisBottom(x))
+      |     .selectAll('text')
+      |     .style('fill', '#a9b7c6')
+      |     .style('font-size', '10px');
+      | 
+      |   svg.append('g')
+      |     .call(d3.axisLeft(y))
+      |     .selectAll('text')
+      |     .style('fill', '#a9b7c6')
+      |     .style('font-size', '10px');
+      | 
+      |   svg.selectAll('rect')
+      |     .data(data)
+      |     .enter().append('rect')
+      |     .attr('x', function(d) { return x(d.zoom); })
+      |     .attr('width', x.bandwidth())
+      |     .attr('y', function(d) { return y(d.percentage); })
+      |     .attr('height', function(d) { return height - y(d.percentage); })
+      |     .attr('fill', function(d) { return d.percentage > 50 ? '#6a9955' : '#ffc66d'; })
+      |     .attr('stroke', '#464749')
+      |     .attr('stroke-width', 1);
       | }

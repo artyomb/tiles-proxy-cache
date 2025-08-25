@@ -11,15 +11,10 @@
       .stat-number = @total_misses
       .stat-desc Cache misses
     .stat-box
-      .stat-number
-        - size_mb = (@total_cache_size / 1024.0 / 1024.0).round(2)
-        = "#{size_mb} MB"
+      .stat-number = "#{(@total_cache_size / 1024.0 / 1024.0).round(2)} MB"
       .stat-desc Cache size
     .stat-box
-      .stat-number
-        - hours = (@uptime / 3600).to_i
-        - minutes = ((@uptime % 3600) / 60).to_i
-        = "#{hours}h #{minutes}m"
+      .stat-number = "#{(@uptime / 3600).to_i}h #{((@uptime % 3600) / 60).to_i}m"
       .stat-desc Uptime
 
 .section
@@ -41,27 +36,42 @@
       
       .source-main-info
         .info-grid
-          .info-item
-            .info-label Target URL
-            .info-value = route[:target]
-          .info-item
-            .info-label Path
-            .info-value = route[:path]
-          .info-item
-            .info-label Zoom Range
-            .info-value = "#{route[:minzoom] || 1} - #{route[:maxzoom] || 20}"
-          .info-item
-            .info-label Tile Size
-            .info-value = "#{route[:tileSize] || 256}px"
-      
-      .source-stats
-        .stats-row
-          .stat-item
-            .stat-number = route[:db][:tiles].count
-            .stat-label Cached Tiles
-          .stat-item
-            .stat-number = route[:db][:misses].count
-            .stat-label Cache Misses
-          .stat-item
-            .stat-number = "#{(get_tiles_size(route) / 1024.0 / 1024.0).round(2)} MB"
-            .stat-label Cache Size
+          .info-header
+            .info-item
+              .info-label Target URL
+              .info-value = route[:target]
+            .info-item
+              .info-label Path
+              .info-value = route[:path]
+          .coverage-chart
+            svg id="chart-#{name}" data-coverage="#{d3_coverage_data(route).to_json}"
+          .info-footer
+            .info-item
+              .info-label Zoom Range
+              .info-value = "#{route[:minzoom] || 1} - #{route[:maxzoom] || 20}"
+            .info-item
+              .info-label Tile Size
+              .info-value = "#{route[:tileSize] || 256}px"
+            .info-item
+              .info-label Cached Tiles
+              .info-value = route[:db][:tiles].count
+            .info-item
+              .info-label Cache Misses
+              .info-value = route[:db][:misses].count
+            .info-item
+              .info-label Cache Size
+              .info-value = "#{(get_tiles_size(route) / 1024.0 / 1024.0).round(2)} MB"
+            .info-item
+              .info-label Coverage
+              .info-value = "#{total_coverage_percentage(route)}%"
+        javascript:
+          document.addEventListener('DOMContentLoaded', function() {
+            const chartElement = document.getElementById('chart-#{name}');
+            if (!chartElement) return;
+            
+            const rawData = chartElement.getAttribute('data-coverage');
+            if (!rawData) return;
+            
+            const data = JSON.parse(rawData);
+            createCoverageChart('chart-#{name}', data);
+          });

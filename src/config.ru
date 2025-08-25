@@ -5,6 +5,7 @@ require 'faraday/retry'
 require 'faraday/net_http_persistent'
 require 'stack-service-base'
 require 'yaml'
+require_relative 'view_helpers'
 
 StackServiceBase.rack_setup self
 
@@ -162,9 +163,7 @@ end
 
 
 helpers do
-  def get_tiles_size(route)
-    route[:db][:tiles].sum(Sequel.function(:length, :tile_data)) || 0
-  end
+  include ViewHelpers
   def tms_y(z,y) (1<<z) - 1 - y end
   def key(z,x,y) "#{z}/#{x}/#{y}" end
 
