@@ -8,6 +8,8 @@ require 'yaml'
 
 StackServiceBase.rack_setup self
 
+START_TIME = Time.now
+
 CONFIG_FOLDER = ENV['RACK_ENV'] == 'production' ? '/configs' : "#{__dir__}/configs"
 
 ROUTES = Dir["#{CONFIG_FOLDER}/*.{yaml,yml}"].map {YAML.load_file(_1, symbolize_names: true) }.reduce({}, :merge)
@@ -15,6 +17,15 @@ ROUTES = Dir["#{CONFIG_FOLDER}/*.{yaml,yml}"].map {YAML.load_file(_1, symbolize_
 require_relative 'gost.rb' if ENV['GOST']
 
 RATE_PER_SEC = 1
+
+get "/" do
+  @total_sources = ROUTES.length
+  @total_tiles = ROUTES.values.sum { |route| route [:db][:tiles].count }
+  @total_misses = ROUTES.values.sum { |route| route [:db][:misses].count }
+  @total_cache_size = ROUTES.values.sum { |route| File.size(route[:mbtiles_file]) rescue 0}
+  @uptime = Time.now - START_TIME
+  slim :index
+end
 
 configure do
   ROUTES.each do |_name, route|

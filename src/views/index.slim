@@ -1,0 +1,23 @@
+.section
+  .section-title Service Statistics
+  .stats-grid
+    .stat-box
+      .stat-number = @total_sources
+      .stat-desc Available sources
+    .stat-box
+      .stat-number = @total_tiles
+      .stat-desc Total cached tiles
+    .stat-box
+      .stat-number = @total_misses
+      .stat-desc Cache misses
+    .stat-box
+      .stat-number
+        - size_mb = (@total_cache_size / 1024.0 / 1024.0).round(2)
+        = "#{size_mb} MB"
+      .stat-desc Cache size
+    .stat-box
+      .stat-number
+        - hours = (@uptime / 3600).to_i
+        - minutes = ((@uptime % 3600) / 60).to_i
+        = "#{hours}h #{minutes}m"
+      .stat-desc Uptime
