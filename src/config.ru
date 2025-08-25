@@ -14,16 +14,19 @@ CONFIG_FOLDER = ENV['RACK_ENV'] == 'production' ? '/configs' : "#{__dir__}/confi
 
 ROUTES = Dir["#{CONFIG_FOLDER}/*.{yaml,yml}"].map {YAML.load_file(_1, symbolize_names: true) }.reduce({}, :merge)
 
+SAFE_KEYS = %i[path target tileSize minzoom maxzoom mbtiles_file]
+
 require_relative 'gost.rb' if ENV['GOST']
 
 RATE_PER_SEC = 1
 
 get "/" do
   @total_sources = ROUTES.length
-  @total_tiles = ROUTES.values.sum { |route| route [:db][:tiles].count }
-  @total_misses = ROUTES.values.sum { |route| route [:db][:misses].count }
+  @total_tiles = ROUTES.values.sum { |route| route[:db][:tiles].count }
+  @total_misses = ROUTES.values.sum { |route| route[:db][:misses].count }
   @total_cache_size = ROUTES.values.sum { |route| File.size(route[:mbtiles_file]) rescue 0}
   @uptime = Time.now - START_TIME
+  @original_config = ROUTES.transform_values { |route| route.slice(*SAFE_KEYS) }
   slim :index
 end
 

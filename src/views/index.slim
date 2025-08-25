@@ -21,3 +21,47 @@
         - minutes = ((@uptime % 3600) / 60).to_i
         = "#{hours}h #{minutes}m"
       .stat-desc Uptime
+
+.section
+  .section-title 
+    | Application Configuration
+    .header-buttons
+      a.btn href="#" onclick="toggleGlobalConfig()" 📋 View Config
+  
+  .global-config.hidden id="global-config"
+    .config-yaml
+      pre = @original_config.to_yaml
+
+.section
+  .section-title Available Sources
+  - ROUTES.each do |name, route|
+    .source-card
+      .source-header
+        .source-name = name
+      
+      .source-main-info
+        .info-grid
+          .info-item
+            .info-label Target URL
+            .info-value = route[:target]
+          .info-item
+            .info-label Path
+            .info-value = route[:path]
+          .info-item
+            .info-label Zoom Range
+            .info-value = "#{route[:minzoom] || 1} - #{route[:maxzoom] || 20}"
+          .info-item
+            .info-label Tile Size
+            .info-value = "#{route[:tileSize] || 256}px"
+      
+      .source-stats
+        .stats-row
+          .stat-item
+            .stat-number = route[:db][:tiles].count
+            .stat-label Cached Tiles
+          .stat-item
+            .stat-number = route[:db][:misses].count
+            .stat-label Cache Misses
+          .stat-item
+            .stat-number = "#{(File.size(route[:mbtiles_file]) / 1024.0 / 1024.0).round(2)} MB"
+            .stat-label Cache Size
