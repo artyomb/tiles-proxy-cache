@@ -63,5 +63,5 @@
             .stat-number = route[:db][:misses].count
             .stat-label Cache Misses
           .stat-item
-            .stat-number = "#{(File.size(route[:mbtiles_file]) / 1024.0 / 1024.0).round(2)} MB"
+            .stat-number = "#{(get_tiles_size(route) / 1024.0 / 1024.0).round(2)} MB"
             .stat-label Cache Size

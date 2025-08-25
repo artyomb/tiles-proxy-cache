@@ -24,7 +24,7 @@ get "/" do
   @total_sources = ROUTES.length
   @total_tiles = ROUTES.values.sum { |route| route[:db][:tiles].count }
   @total_misses = ROUTES.values.sum { |route| route[:db][:misses].count }
-  @total_cache_size = ROUTES.values.sum { |route| File.size(route[:mbtiles_file]) rescue 0}
+  @total_cache_size = ROUTES.values.sum { |route| get_tiles_size(route) }
   @uptime = Time.now - START_TIME
   @original_config = ROUTES.transform_values { |route| route.slice(*SAFE_KEYS) }
   slim :index
@@ -162,6 +162,9 @@ end
 
 
 helpers do
+  def get_tiles_size(route)
+    route[:db][:tiles].sum(Sequel.function(:length, :tile_data)) || 0
+  end
   def tms_y(z,y) (1<<z) - 1 - y end
   def key(z,x,y) "#{z}/#{x}/#{y}" end
 
