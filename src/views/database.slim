@@ -1,0 +1,119 @@
+doctype html
+html
+  head
+    title Database Viewer - #{@source}
+    style
+      | * { margin: 0; padding: 0; box-sizing: border-box; }
+      | body { font-family: 'JetBrains Mono', monospace; background: #2b2b2b; color: #a9b7c6; line-height: 1.4; font-size: 14px; }
+      | .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
+      | .header { background: #3c3f41; border: 1px solid #555; padding: 20px; border-radius: 4px; margin-bottom: 20px; }
+      | .header-content { display: flex; justify-content: space-between; align-items: flex-start; }
+      | .header h1 { color: #ffc66d; font-size: 20px; margin-bottom: 8px; }
+      | .header p { color: #808080; font-size: 13px; }
+      | .section { background: #3c3f41; border: 1px solid #555; padding: 16px; border-radius: 4px; margin-bottom: 16px; }
+      | .section-title { color: #6a9955; font-weight: bold; margin-bottom: 12px; font-size: 16px; }
+      | .btn { display: inline-block; padding: 6px 12px; background: #4b4d4f; color: #a9b7c6; text-decoration: none; border-radius: 3px; font-size: 12px; border: 1px solid #555; margin-right: 8px; }
+      | .btn:hover { background: #5a5d5f; border-color: #666; }
+      | .btn-primary { background: #6a9955; color: #fff; border-color: #7bb366; }
+      | .btn-primary:hover { background: #7bb366; border-color: #8cc477; }
+      | .nav { display: flex; gap: 8px; flex-wrap: wrap; }
+      | .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 20px; }
+      | .stat-box { background: linear-gradient(135deg, #313335 0%, #2b2b2b 100%); border: 1px solid #464749; padding: 12px; border-radius: 6px; text-align: center; transition: all 0.3s ease; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+      | .stat-box:hover { transform: translateY(-2px); box-shadow: 0 4px 8px rgba(0,0,0,0.2); border-color: #6a9955; }
+      | .stat-number { font-size: 24px; font-weight: bold; color: #6897bb; margin-bottom: 4px; text-shadow: 0 1px 2px rgba(0,0,0,0.3); }
+      | .stat-desc { font-size: 11px; color: #808080; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 500; }
+      | .table-container { overflow-x: auto; border: 1px solid #555; border-radius: 4px; background: #2b2b2b; }
+      | .table-container table { width: 100%; border-collapse: collapse; font-size: 12px; table-layout: fixed; }
+      | .table-container th, .table-container td { word-wrap: break-word; overflow: hidden; text-overflow: ellipsis; }
+      | .table-container th { background: #3c3f41; color: #ffc66d; font-weight: bold; padding: 8px 12px; text-align: left; border-bottom: 1px solid #555; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
+      | .table-container td { padding: 6px 12px; border-bottom: 1px solid #464749; color: #a9b7c6; font-family: 'Courier New', monospace; font-size: 11px; }
+      | .table-container tr:hover { background: #313335; }
+      | .table-container tr:nth-child(even) { background: #2b2b2b; }
+      | .table-container tr:nth-child(even):hover { background: #313335; }
+      | .main-layout { display: flex; gap: 20px; margin-top: 20px; }
+      | .sidebar { width: 280px; flex-shrink: 0; }
+      | .content { flex: 1; }
+      | .table-list { background: #3c3f41; border: 1px solid #555; border-radius: 4px; overflow: hidden; }
+      | .table-list-header { background: #4b4d4f; padding: 12px 16px; border-bottom: 1px solid #555; color: #ffc66d; font-weight: bold; font-size: 14px; }
+      | .table-item { display: block; text-decoration: none; padding: 10px 16px; border-bottom: 1px solid #464749; cursor: pointer; transition: background 0.2s ease; color: #a9b7c6; font-size: 13px; }
+      | .table-item:hover { background: #313335; }
+      | .table-item.active { background: #6a9955; color: #fff; }
+      | .table-item .table-name { font-weight: bold; margin-bottom: 4px; display: block; }
+      | .table-item .table-count { font-size: 11px; color: #808080; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      | .table-item.active .table-count { color: #e0e0e0; }
+      | .pagination { display: flex; justify-content: space-between; align-items: center; margin-top: 16px; padding: 12px 16px; background: #3c3f41; border: 1px solid #555; border-radius: 4px; }
+      | .pagination-info { color: #808080; font-size: 12px; }
+      | .pagination-controls { display: flex; gap: 8px; }
+      | .pagination-btn { padding: 4px 8px; background: #4b4d4f; color: #a9b7c6; border: 1px solid #555; border-radius: 3px; font-size: 11px; cursor: pointer; text-decoration: none; }
+      | .pagination-btn:hover { background: #5a5d5f; border-color: #666; }
+      | .table-header { margin-bottom: 12px; }
+      | .table-title { color: #6a9955; font-weight: bold; font-size: 16px; }
+
+  body
+    .container
+      .header
+        .header-content
+          div
+            h1 Database Viewer: #{@source}
+            p Target: #{@route[:target]}
+
+      .section
+        .section-title Navigation
+        .nav
+          - ROUTES.each do |name, route|
+            a.btn class="#{name.to_s == @source ? 'btn-primary' : ''}" href="/db?source=#{name}" #{name}
+
+      .section
+        .section-title Statistics
+        .stats-grid
+          .stat-box
+            .stat-number = @route[:db][:tiles].count
+            .stat-desc Cached Tiles
+          .stat-box
+            .stat-number = @route[:db][:misses].count
+            .stat-desc Cache Misses
+          .stat-box
+            .stat-number = "#{((@route[:db][:tiles].sum(Sequel.function(:length, :tile_data)) || 0) / 1024.0 / 1024.0).round(2)} MB"
+            .stat-desc Cache Size
+
+      .main-layout
+        .sidebar
+          .table-list
+            .table-list-header Tables
+            - current_table = params[:table] || 'tiles'
+            - tables = [{ name: 'tiles', count: @route[:db][:tiles].count, title: 'Tiles' }, { name: 'misses', count: @route[:db][:misses].count, title: 'Misses' }, { name: 'metadata', count: @route[:db][:metadata].count, title: 'Metadata' }]
+            - tables.each do |table|
+              a.table-item class="#{table[:name] == current_table ? 'active' : ''}" href="/db?source=#{@source}&table=#{table[:name]}"
+                .table-name = table[:title]
+                .table-count = "#{table[:count]} records"
+
+        .content
+          - page, per_page = (params[:page] || 1).to_i, 50
+          - offset = (page - 1) * per_page
+          - table_data = { 'tiles' => { title: 'Tiles Table', cols: ['Zoom Level', 'Tile Column', 'Tile Row', 'Data Size'], data: @route[:db][:tiles].limit(per_page).offset(offset), format: ->(r) { [r[:zoom_level], r[:tile_column], r[:tile_row], "#{(r[:tile_data].bytesize / 1024.0).round(1)} KB"] } }, 'misses' => { title: 'Misses Table', cols: ['Z', 'X', 'Y', 'Timestamp'], data: @route[:db][:misses].limit(per_page).offset(offset), format: ->(r) { [r[:z], r[:x], r[:y], Time.at(r[:ts]).strftime("%Y-%m-%d %H:%M:%S")] } }, 'metadata' => { title: 'Metadata Table', cols: ['Name', 'Value'], data: @route[:db][:metadata].limit(per_page).offset(offset), format: ->(r) { [r[:name], r[:value]] } } }
+          - current_data = table_data[current_table]
+          - total_count = @route[:db][current_table.to_sym].count
+          - total_pages = (total_count.to_f / per_page).ceil
+          
+          .section
+            .table-header
+              .table-title = current_data[:title]
+            .table-container
+              table
+                thead
+                  tr
+                    - current_data[:cols].each do |col|
+                      th = col
+                tbody
+                  - current_data[:data].each do |record|
+                    tr
+                      - current_data[:format].call(record).each do |cell|
+                        td = cell
+            .pagination
+              .pagination-info
+                | Showing #{offset + 1}-#{[offset + per_page, total_count].min} of #{total_count} records
+              .pagination-controls
+                - if page > 1
+                  a.pagination-btn href="/db?source=#{@source}&table=#{current_table}&page=#{page-1}" ← Previous
+                - if page < total_pages
+                  a.pagination-btn href="/db?source=#{@source}&table=#{current_table}&page=#{page+1}" Next →

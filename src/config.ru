@@ -5,6 +5,7 @@ require 'faraday/retry'
 require 'faraday/net_http_persistent'
 require 'stack-service-base'
 require 'yaml'
+require 'autoforme'
 require_relative 'view_helpers'
 
 StackServiceBase.rack_setup self
@@ -16,6 +17,7 @@ CONFIG_FOLDER = ENV['RACK_ENV'] == 'production' ? '/configs' : "#{__dir__}/confi
 ROUTES = Dir["#{CONFIG_FOLDER}/*.{yaml,yml}"].map {YAML.load_file(_1, symbolize_names: true) }.reduce({}, :merge)
 
 SAFE_KEYS = %i[path target tileSize minzoom maxzoom mbtiles_file]
+DB_SAFE_KEYS = SAFE_KEYS + %i[db]
 
 require_relative 'gost.rb' if ENV['GOST']
 
@@ -29,6 +31,17 @@ get "/" do
   @uptime = Time.now - START_TIME
   @original_config = ROUTES.transform_values { |route| route.slice(*SAFE_KEYS) }
   slim :index
+end
+
+get "/db" do
+  source = params[:source]&.strip || ROUTES.keys.first.to_s
+  return status(400), "Invalid source parameter" unless source&.match?(/^[A-Za-z0-9_-]+$/)
+  
+  route = ROUTES[source.to_sym]
+  return status(404), "Source not found" unless route
+  
+  @source, @route = source, route.slice(*DB_SAFE_KEYS)
+  slim :database
 end
 
 get "/map" do

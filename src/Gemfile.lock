@@ -36,6 +36,11 @@ GEM
     async-service (0.14.1)
       async
       async-container (~> 0.16)
+    autoforme (1.13.0)
+      enum_csv
+      forme (>= 2.0.0)
+      rack
+      sequel (>= 3.0.0)
     base64 (0.3.0)
     benchmark-malloc (0.2.0)
     benchmark-perf (0.6.0)
@@ -47,8 +52,11 @@ GEM
       fiber-annotation
       fiber-local (~> 1.1)
       json
+    csv (3.3.5)
     diff-lcs (1.6.2)
     docile (1.4.1)
+    enum_csv (1.2.0)
+      csv
     falcon (0.52.3)
       async
       async-container (~> 0.20)
@@ -78,6 +86,8 @@ GEM
     fiber-local (1.1.0)
       fiber-storage
     fiber-storage (1.0.1)
+    forme (2.6.0)
+      bigdecimal
     google-protobuf (4.32.0-x86_64-linux-gnu)
       bigdecimal
       rake (>= 13)
@@ -418,6 +428,7 @@ PLATFORMS
 DEPENDENCIES
   async
   async-rspec
+  autoforme
   falcon
   faraday
   faraday-net_http_persistent
