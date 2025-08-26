@@ -59,7 +59,7 @@ module ViewHelpers
           type: "raster",
           source: source_name,
           layout: { visibility: "visible" },
-          paint: { "raster-resampling": "nearest" }
+          paint: { "raster-resampling": "cubic" }
         }
       ]
     }.to_json
