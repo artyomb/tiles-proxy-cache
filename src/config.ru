@@ -199,6 +199,10 @@ helpers do
 
     response = route[:client].send *args.values
 
+    return nil unless response.status == 200
+    return nil if response.body.empty? || response.body.size < 1024
+    return nil unless response.headers['content-type']&.include?('image/')
+
     status response.status
     copy_headers_from_response(response.headers)
 
