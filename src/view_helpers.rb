@@ -39,7 +39,7 @@ module ViewHelpers
     end
   end
   def generate_single_source_style(route, source_name)
-    host = request.env['rack.url_scheme'] + '://' + request.env['HTTP_HOST']
+    base_url = request.base_url
     
     {
       version: 8,
@@ -47,7 +47,7 @@ module ViewHelpers
       sources: {
         source_name => {
           type: "raster",
-          tiles: ["#{host}#{route[:path].gsub(':z', '{z}').gsub(':x', '{x}').gsub(':y', '{y}')}"],
+          tiles: ["#{base_url}#{route[:path].gsub(':z', '{z}').gsub(':x', '{x}').gsub(':y', '{y}')}"],
           tileSize: route[:tileSize] || 256,
           minzoom: route[:minzoom] || 1,
           maxzoom: route[:maxzoom] || 20
