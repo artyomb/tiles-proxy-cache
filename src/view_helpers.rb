@@ -38,4 +38,30 @@ module ViewHelpers
       }
     end
   end
+  def generate_single_source_style(route, source_name)
+    host = request.env['rack.url_scheme'] + '://' + request.env['HTTP_HOST']
+    
+    {
+      version: 8,
+      name: "#{source_name} Map",
+      sources: {
+        source_name => {
+          type: "raster",
+          tiles: ["#{host}#{route[:path].gsub(':z', '{z}').gsub(':x', '{x}').gsub(':y', '{y}')}"],
+          tileSize: route[:tileSize] || 256,
+          minzoom: route[:minzoom] || 1,
+          maxzoom: route[:maxzoom] || 20
+        }
+      },
+      layers: [
+        {
+          id: source_name.downcase,
+          type: "raster",
+          source: source_name,
+          layout: { visibility: "visible" },
+          paint: { "raster-resampling": "nearest" }
+        }
+      ]
+    }.to_json
+  end
 end

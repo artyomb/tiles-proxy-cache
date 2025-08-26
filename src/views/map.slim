@@ -1,0 +1,438 @@
+ruby:
+  source_name = params[:source]&.strip
+  style_url = source_name&.match?(/^[A-Za-z0-9_-]+$/) ? "/map/style?source=#{source_name}" : nil
+
+#loading-indicator
+  .loading-progress
+    .loading-text Loading map...
+    .progress-bar
+      .progress-fill
+
+.layer-controls
+  button.control-button onclick="toggleHoverMode()" id="hover-mode-btn" Hover Mode
+  button.control-button onclick="toggleBasemap()" id="basemap-btn" Toggle Basemap
+  
+  #layers-panel.control-panel.active
+    .control-panel-header
+      button.control-button onclick="toggleAllLayers()" Toggle All Layers
+    .control-panel-content
+      #layer-buttons
+
+#map-container
+  #map_base.map-layer
+  #map.map-layer data-style-url="#{style_url}"
+  
+  #performance-panel.performance-overlay
+    button.performance-toggle onclick="togglePerformancePanel()" ×
+    .performance-content
+      .metric-row
+        .metric
+          span.metric-label FPS:
+          span.metric-value#fps-value 0
+        .metric
+          span.metric-label Frame:
+          span.metric-value#frame-time-value 0ms
+        .metric
+          span.metric-label Memory:
+          span.metric-value#memory-usage-value 0MB
+        .metric
+          span.metric-label Zoom:
+          span.metric-value#zoom-level-value 0
+      .metric-row
+        .metric
+          span.metric-label Tiles:
+          span.metric-value#tiles-loaded-value 0
+        .metric
+          span.metric-label Loading:
+          span.metric-value#tiles-loading-value 0
+        .metric
+          span.metric-label Layers:
+          span.metric-value#layers-active-value 0
+
+javascript:
+  const mapEl = document.getElementById('map');
+  const style_url = mapEl?.dataset?.styleUrl || null;
+  let showBasemap = false;
+  let hoverMode = 'click';
+  let layerStates = {};
+  let map = null, map_base = null;
+  let styleLoaded = false, resourcesLoaded = 0, totalResources = 0;
+  let tilesLoaded = 0, tilesTotal = 0;
+  let currentStyle = null;
+  const layerIdToDomId = {};
+
+  const toDomId = (prefix, id) => `${prefix}-${String(id).replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+  
+
+  
+  const showLoading = () => document.getElementById('loading-indicator').style.display = 'block';
+  const hideLoading = () => document.getElementById('loading-indicator').style.display = 'none';
+  
+  const updateLoadingProgress = () => {
+    let progress = 0;
+    let loadingText = 'Loading map...';
+    
+    if (totalResources > 0) {
+      const resourceProgress = Math.round((resourcesLoaded / totalResources) * 50);
+      progress = resourceProgress;
+      loadingText = `Loading resources... ${resourceProgress * 2}%`;
+    }
+    
+    if (map?.getStyle()?.sources) {
+      const sources = Object.keys(map.getStyle().sources);
+      if (sources.length > 0) {
+        const tileProgress = Math.round((tilesLoaded || 0) / sources.length * 50);
+        progress = Math.min(100, (totalResources > 0 ? 50 : 0) + tileProgress);
+        loadingText = `Loading tiles... ${progress}%`;
+      }
+    }
+    
+    document.querySelector('.loading-text').textContent = loadingText;
+    document.querySelector('.progress-fill').style.width = `${progress}%`;
+  };
+  
+  const applyLayerMode = () => {
+    Object.keys(layerStates).forEach(layerId => {
+      if (map.getLayer(layerId)) {
+        map.setLayoutProperty(layerId, 'visibility', layerStates[layerId] ? 'visible' : 'none');
+      }
+    });
+  };
+  
+  const checkStyleResources = (style) => {
+    totalResources = 0; 
+    resourcesLoaded = 0;
+    const promises = [];
+    
+    if (style.glyphs) {
+      totalResources += 1;
+      promises.push(Promise.resolve().then(() => { resourcesLoaded++; updateLoadingProgress(); }));
+    }
+    
+    if (totalResources > 0) {
+      showLoading();
+      updateLoadingProgress();
+      Promise.all(promises).then(() => { styleLoaded = true; });
+    }
+  };
+  
+  const createMap = (container, style) => new maplibregl.Map({
+    container, style,
+    center: [35.15, 47.41], zoom: 2, attributionControl: false, validateStyle: false
+  });
+  
+  const syncMaps = (map, map_base) => {
+    map.on('move', () => {
+      if (!map_base || map_base._isDestroyed) return;
+      
+      const center = map.getCenter();
+      const zoom = map.getZoom();
+      const bearing = map.getBearing();
+      const pitch = map.getPitch();
+      map_base.jumpTo({ center, zoom, bearing, pitch });
+      map_base.triggerRepaint(); 
+      map_base.resize();
+    });
+  };
+  
+  const popupFeature = (features, e, popup) => {
+    const tt = (tooltip, feat) => tooltip?.replace(/\{([^}]+)\}/g, (match, prop) => {
+      let value = feat;
+      for (const p of prop.split('.')) { value = value?.[p]; }
+      return typeof value === 'object' ? JSON.stringify(value, null, 2) : (value || '');
+    });
+
+    const tooltips = features.map((feat) => 
+      tt(feat.layer.metadata?.tooltip, feat) ||
+      tt(`<pre>"id": {id},\n"source": {source},\n"source-layer": {sourceLayer},\n"properties": {properties}</pre>`, feat)
+    );
+    popup.setLngLat(e.lngLat).setHTML(tooltips.join('<br>')).addTo(map);
+  };
+  
+  const initializeMap = () => {
+    showLoading();
+    
+    map_base = createMap('map_base', 'https://demotiles.maplibre.org/style.json');
+    map_base.once('idle', () => { 
+      try { map_base.setProjection({ type: 'globe' }); } catch (_) {} 
+    });
+
+    map = createMap('map', style_url || 'https://demotiles.maplibre.org/style.json');
+    document.getElementById('map_base').style.display = 'none';
+    map.addControl(new maplibregl.NavigationControl());
+    map.on('error', (e) => { console.error('[MapLibre ERROR]', e?.error || e); });
+
+    if (style_url) {
+      syncMaps(map, map_base);
+      map.on('projectiontransition', (e) => {
+        const applyProjection = () => {
+          try { map_base.setProjection({ type: e.newProjection }); } catch (_) {}
+          map_base.triggerRepaint(); 
+          map_base.resize();
+        };
+        map_base.isStyleLoaded && map_base.isStyleLoaded() ? applyProjection() : map_base.once('idle', applyProjection);
+      });
+    }
+
+    map.on('load', async () => {
+      try { 
+        currentStyle = map.getStyle(); 
+        if (currentStyle) {
+          checkStyleResources(currentStyle);
+          createLayerButtons();
+        }
+      } catch (_) {}
+
+      const onStyleReady = () => {
+        try { map.setProjection({ type: 'globe' }); } catch (_) {}
+        try { map.addControl(new maplibregl.GlobeControl(), 'top-right'); } catch (_) {}
+      };
+      
+      map.once('idle', onStyleReady);
+      
+      const popup = new maplibregl.Popup({closeButton: false, closeOnClick: false});
+
+      map.on('click', function (e) {
+        const features = this.queryRenderedFeatures(e.point);
+        if (features.length > 0) {
+          hoverMode === 'click' && popupFeature(features, e, popup);
+          console.log('Clicked feature:', features[0]);
+        }
+      });
+
+      let timeout, point;
+      map.on('mousemove', (e) => {
+        if (hoverMode !== 'hover') {
+          map.getCanvas().style.cursor = '';
+          popup.remove();
+          return;
+        }
+        
+        clearTimeout(timeout);
+        const features = map.queryRenderedFeatures(e.point);
+        const hasFeatures = features.length > 0;
+        
+        map.getCanvas().style.cursor = hasFeatures ? 'crosshair' : '';
+        hasFeatures ? timeout = setTimeout(() => popupFeature(features, e, popup), 100) : popup.remove();
+        
+        point && !point.equals(e.point) && popup.remove();
+        point = e.point.clone();
+      });
+      
+      map.on('sourcedata', (e) => {
+        if (e.sourceId && e.isSourceLoaded) {
+          tilesLoaded++;
+          tilesTotal === 0 && (tilesTotal = Object.keys(map.getStyle().sources).length);
+          updateLoadingProgress();
+        }
+      });
+      
+      map.on('idle', () => {
+        const allResourcesLoaded = totalResources === 0 || styleLoaded;
+        const allTilesLoaded = tilesTotal === 0 || tilesLoaded >= tilesTotal;
+        
+        if (allResourcesLoaded && allTilesLoaded) {
+          hideLoading();
+        }
+      });
+      
+      setTimeout(() => hideLoading(), 10000);
+      
+      startPerformanceMonitoring();
+      requestAnimationFrame(countFrame);
+      updateHoverModeButton();
+      updateBasemapButton();
+    });
+  };
+
+  const toggleBasemap = () => {
+    showBasemap = !showBasemap;
+    document.getElementById('map_base').style.display = showBasemap ? 'block' : 'none';
+    updateBasemapButton();
+  };
+
+  const updateBasemapButton = () => {
+    const btn = document.getElementById('basemap-btn');
+    if (!btn) return;
+    
+    btn.textContent = showBasemap ? 'Hide Basemap' : 'Show Basemap';
+    btn.className = `control-button ${showBasemap ? 'active' : 'inactive'}`;
+  };
+
+  const toggleHoverMode = () => {
+    hoverMode = hoverMode === 'hover' ? 'click' : 'hover';
+    updateHoverModeButton();
+  };
+
+  const updateHoverModeButton = () => {
+    const btn = document.getElementById('hover-mode-btn');
+    if (!btn) return;
+    
+    const isHoverMode = hoverMode === 'hover';
+    btn.textContent = isHoverMode ? 'Click Mode' : 'Hover Mode';
+    btn.className = `control-button ${isHoverMode ? 'active' : ''}`;
+  };
+
+
+
+
+
+  let fpsCounter = 0, lastFpsTime = 0, frameCount = 0;
+  let performanceMonitor = null;
+  let performancePanelVisible = true;
+
+  const togglePerformancePanel = () => {
+    const panel = document.getElementById('performance-panel');
+    performancePanelVisible = !performancePanelVisible;
+    panel.style.display = performancePanelVisible ? 'block' : 'none';
+  };
+
+  const startPerformanceMonitoring = () => {
+    if (performanceMonitor) return;
+    performanceMonitor = setInterval(updatePerformanceMetrics, 1000);
+  };
+
+  const stopPerformanceMonitoring = () => {
+    if (performanceMonitor) {
+      clearInterval(performanceMonitor);
+      performanceMonitor = null;
+    }
+  };
+
+  const updatePerformanceMetrics = () => {
+    if (!map) return;
+
+    const now = performance.now();
+    if (lastFpsTime === 0) {
+      lastFpsTime = now;
+      frameCount = 0;
+    }
+    
+    frameCount++;
+    if (now - lastFpsTime >= 1000) {
+      const fps = Math.round((frameCount * 1000) / (now - lastFpsTime));
+      const fpsElement = document.getElementById('fps-value');
+      fpsElement.textContent = fps;
+      fpsElement.className = `metric-value ${fps < 30 ? 'error' : fps < 50 ? 'warning' : 'success'}`;
+      
+      const frameTime = Math.round(1000 / fps);
+      const frameElement = document.getElementById('frame-time-value');
+      frameElement.textContent = `${frameTime}ms`;
+      frameElement.className = `metric-value ${frameTime > 33 ? 'error' : frameTime > 20 ? 'warning' : 'success'}`;
+      
+      lastFpsTime = now;
+      frameCount = 0;
+    }
+
+    try {
+      const sourcesCount = map.getStyle()?.sources ? Object.keys(map.getStyle().sources).length : 0;
+      document.getElementById('tiles-loaded-value').textContent = sourcesCount;
+      
+      const loadingTiles = map.isStyleLoaded() ? 0 : 1;
+      document.getElementById('tiles-loading-value').textContent = loadingTiles;
+    } catch (e) {
+      console.warn('Could not get tile metrics:', e);
+    }
+
+    try {
+      if (performance.memory) {
+        const memoryMB = Math.round(performance.memory.usedJSHeapSize / 1024 / 1024);
+        const memoryElement = document.getElementById('memory-usage-value');
+        memoryElement.textContent = `${memoryMB}MB`;
+        memoryElement.className = `metric-value ${memoryMB > 500 ? 'error' : memoryMB > 200 ? 'warning' : 'success'}`;
+      } else {
+        document.getElementById('memory-usage-value').textContent = 'N/A';
+      }
+    } catch (e) {
+      document.getElementById('memory-usage-value').textContent = 'N/A';
+    }
+
+    try {
+      let activeLayers = 0;
+      if (currentStyle?.layers) {
+        currentStyle.layers.forEach(layer => {
+          if (map.getLayer(layer.id)) {
+            const visibility = map.getLayoutProperty(layer.id, 'visibility');
+            if (visibility === 'visible') activeLayers++;
+          }
+        });
+      }
+      const layersElement = document.getElementById('layers-active-value');
+      layersElement.textContent = activeLayers;
+      layersElement.className = `metric-value ${activeLayers > 50 ? 'warning' : 'success'}`;
+    } catch (e) {
+      document.getElementById('layers-active-value').textContent = 'N/A';
+    }
+
+    try {
+      const zoom = map.getZoom();
+      document.getElementById('zoom-level-value').textContent = zoom.toFixed(1);
+    } catch (e) {
+      document.getElementById('zoom-level-value').textContent = 'N/A';
+    }
+  };
+
+  const toggleAllLayers = () => {
+    const allVisible = Object.values(layerStates).every(state => state);
+    const newState = !allVisible;
+    
+    Object.keys(layerStates).forEach(layerId => {
+      layerStates[layerId] = newState;
+      if (map.getLayer(layerId)) {
+        map.setLayoutProperty(layerId, 'visibility', newState ? 'visible' : 'none');
+      }
+    });
+    
+    updateLayerButtons();
+  };
+
+  const toggleLayer = (layerId) => {
+    layerStates[layerId] = !layerStates[layerId];
+    
+    if (map.getLayer(layerId)) {
+      map.setLayoutProperty(layerId, 'visibility', layerStates[layerId] ? 'visible' : 'none');
+    }
+    updateLayerButtons();
+  };
+
+  const updateLayerButtons = () => {
+    Object.keys(layerStates).forEach(layerId => {
+      const btnId = layerIdToDomId[layerId] || toDomId('layer', layerId);
+      const button = document.getElementById(btnId);
+      if (button) {
+        button.className = `control-button ${layerStates[layerId] ? 'active' : 'inactive'}`;
+      }
+    });
+  };
+
+  const createLayerButtons = () => {
+    if (!currentStyle?.layers) return;
+    
+    const layerButtonsContainer = document.getElementById('layer-buttons');
+    if (!layerButtonsContainer) return;
+    
+    currentStyle.layers.forEach(layer => {
+      const button = document.createElement('button');
+      const buttonId = toDomId('layer', layer.id);
+      button.id = buttonId;
+      button.className = 'control-button active';
+      button.textContent = layer.id;
+      button.onclick = () => toggleLayer(layer.id);
+      layerButtonsContainer.appendChild(button);
+      layerStates[layer.id] = true;
+      layerIdToDomId[layer.id] = buttonId;
+    });
+  };
+
+  const countFrame = () => {
+    frameCount++;
+    requestAnimationFrame(countFrame);
+  };
+
+  window.toggleBasemap = toggleBasemap;
+  window.toggleHoverMode = toggleHoverMode;
+  window.toggleAllLayers = toggleAllLayers;
+  window.togglePerformancePanel = togglePerformancePanel;
+
+  initializeMap();
+  

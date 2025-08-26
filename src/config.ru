@@ -31,6 +31,24 @@ get "/" do
   slim :index
 end
 
+get "/map" do
+  source = params[:source]&.strip
+  return status(400), "Invalid source parameter" unless source&.match?(/^[A-Za-z0-9_-]+$/)
+  
+  @route = ROUTES[source.to_sym]
+  @route ? slim(:map, layout: :map_layout) : 
+    (status 404; "Source not found")
+end
+
+get "/map/style" do
+  source = params[:source]&.strip
+  return status(400), "Invalid source parameter" unless source&.match?(/^[A-Za-z0-9_-]+$/)
+  
+  route = ROUTES[source.to_sym]
+  route ? (content_type :json; generate_single_source_style(route, source)) :
+    (status 404; "Source not found")
+end
+
 configure do
   ROUTES.each do |_name, route|
     uri = URI.parse route[:target].gsub( /[{}]/, '_')
