@@ -98,7 +98,7 @@ configure do
       File    :tile_data,   null:false
       unique [:zoom_level,:tile_column,:tile_row], name: :tile_index
     }
-    db.create_table?(:misses){ Integer :z; Integer :x; Integer :y; Integer :ts }
+    db.create_table?(:misses){ Integer :z; Integer :x; Integer :y; Integer :ts; String :reason; String :details; File :response_body }
     route[:db] = db
 
     route[:locks] = Hash.new { |h,k| h[k] = Mutex.new }
@@ -145,15 +145,15 @@ ROUTES.each do |_name, route|
       # re-check after acquiring lock
       blob = route[:db][:tiles].where(zoom_level:z, tile_column:x, tile_row:tms).get(:tile_data)
       unless blob
-        data = fetch_http(route:, x: params[:x], y:params[:y] , z: params[:z])
+        result = fetch_http(route:, x: params[:x], y:params[:y] , z: params[:z])
 
-        if data
+        if result[:error]
+          route[:db][:misses].insert(z:z,x:x,y:y,ts:Time.now.to_i,reason:result[:reason],details:result[:details],response_body:Sequel.blob(result[:body] || ''))
+        else
           route[:db][:tiles].insert_conflict(target: [:zoom_level,:tile_column,:tile_row],
                                 update: {tile_data: Sequel[:excluded][:tile_data]}).
-            insert(zoom_level:z, tile_column:x, tile_row:tms, tile_data:Sequel.blob(data))
-          blob = data
-        else
-          route[:db][:misses].insert(z:z,x:x,y:y,ts:Time.now.to_i)
+            insert(zoom_level:z, tile_column:x, tile_row:tms, tile_data:Sequel.blob(result[:data]))
+          blob = result[:data]
         end
       end
     end
@@ -212,35 +212,43 @@ helpers do
 
     response = route[:client].send *args.values
 
-    return nil unless response.status == 200
-    return nil if response.body.empty? || response.body.size < 1024
-    return nil unless response.headers['content-type']&.include?('image/')
+    error_checks = {
+      'http_error' => -> { response.status != 200 ? "HTTP #{response.status}" : nil },
+      'empty_response' => -> { response.body.empty? ? 'Response body is empty' : nil },
+      'small_size' => -> { response.body.size < 100 ? "Response size: #{response.body.size} bytes" : nil },
+      'wrong_content_type' => -> { !response.headers['content-type']&.include?('image/') ? "Content-Type: #{response.headers['content-type']}" : nil }
+    }
+    
+    error_checks.each do |reason, check|
+      details = check.call
+      return { error: true, reason: reason, details: details, body: response.body } if details
+    end
 
     status response.status
     copy_headers_from_response(response.headers)
 
-    body response.body
+    { error: false, data: response.body }
   end
 
-  def fetch_and_store(route, z,x,y)
-    # skip if already present
-    return true if route[:db][:tiles].where(zoom_level:z, tile_column:x, tile_row:tms_y(z,y)).get(1)
-    # avoid hammering dead tiles (cache 404 for 10 min)
-    stale = (Time.now.to_i - 600)
-    miss = route[:db][:misses].where(z:z,x:x,y:y).reverse(:ts).get(:ts)
-    return false if miss && miss > stale
-
-    data = fetch_http(url(z,x,y))
-    if data
-      route[:db][:misses].insert_conflict(target: [:zoom_level,:tile_column,:tile_row],
-                            update: {tile_data: Sequel[:excluded][:tile_data]}).
-        insert(zoom_level:z, tile_column:x, tile_row:tms_y(z,y), tile_data:Sequel.blob(data))
-      true
-    else
-      route[:db][:misses].insert(z:z,x:x,y:y,ts:Time.now.to_i)
-      false
-    end
-  end
+  # def fetch_and_store(route, z,x,y)
+  #   # skip if already present
+  #   return true if route[:db][:tiles].where(zoom_level:z, tile_column:x, tile_row:tms_y(z,y)).get(1)
+  #   # avoid hammering dead tiles (cache 404 for 10 min)
+  #   stale = (Time.now.to_i - 600)
+  #   miss = route[:db][:misses].where(z:z,x:x,y:y).reverse(:ts).get(:ts)
+  #   return false if miss && miss > stale
+  #
+  #   data = fetch_http(url(z,x,y))
+  #   if data
+  #     route[:db][:misses].insert_conflict(target: [:zoom_level,:tile_column,:tile_row],
+  #                           update: {tile_data: Sequel[:excluded][:tile_data]}).
+  #       insert(zoom_level:z, tile_column:x, tile_row:tms_y(z,y), tile_data:Sequel.blob(data))
+  #     true
+  #   else
+  #     route[:db][:misses].insert(z:z,x:x,y:y,ts:Time.now.to_i)
+  #     false
+  #   end
+  # end
 
   def request_headers
     env.inject({}){|acc, (k,v)| acc[$1.downcase] = v if k =~ /^http_(.*)/i; acc}.transform_keys(&:to_sym)
