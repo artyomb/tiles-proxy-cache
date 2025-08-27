@@ -23,9 +23,9 @@ module ViewHelpers
     max_zoom = route[:maxzoom] || 20
     
     total_possible = (min_zoom..max_zoom).sum { |z| tiles_per_zoom(z) }
-    total_cached = route[:db][:tiles].count
+    total_cached = route[:db][:tiles].where(zoom_level: min_zoom..max_zoom).count
     
-    ((total_cached.to_f / total_possible) * 100).round(2)
+    sprintf('%.8f', (total_cached.to_f / total_possible) * 100).sub(/\.?0+$/, '')
   end
 
   def d3_coverage_data(route)
