@@ -12,6 +12,8 @@ StackServiceBase.rack_setup self
 
 START_TIME = Time.now
 
+ERROR_TILES_PATH = "#{__dir__}/assets/error_tiles"
+
 CONFIG_FOLDER = ENV['RACK_ENV'] == 'production' ? '/configs' : "#{__dir__}/configs"
 
 ROUTES = Dir["#{CONFIG_FOLDER}/*.{yaml,yml}"].map {YAML.load_file(_1, symbolize_names: true) }.reduce({}, :merge)
@@ -150,6 +152,11 @@ ROUTES.each do |_name, route|
 
         if result[:error]
           route[:db][:misses].insert(z:z,x:x,y:y,ts:Time.now.to_i,reason:result[:reason],details:result[:details],response_body:Sequel.blob(result[:body] || ''))
+
+          error_tile = generate_error_tile(result[:status] || 500)
+          headers "Cache-Control" => "no-store", "X-Cache-Status" => "ERROR"
+          content_type "image/png"
+          return error_tile
         else
           route[:db][:tiles].insert_conflict(target: [:zoom_level,:tile_column,:tile_row],
                                 update: {tile_data: Sequel[:excluded][:tile_data]}).
@@ -274,6 +281,20 @@ helpers do
     response_headers.each do |name, value|
       headers[name] = value unless skip_headers.include?(name.downcase)
     end
+  end
+
+  def generate_error_tile(status_code)
+    tile_file = case status_code
+      when 403 then "#{ERROR_TILES_PATH}/error_403.png"
+      when 404 then "#{ERROR_TILES_PATH}/error_404.png"
+      when 429 then "#{ERROR_TILES_PATH}/error_429.png"
+      when 500 then "#{ERROR_TILES_PATH}/error_500.png"
+      else "#{ERROR_TILES_PATH}/error_other.png"
+                end
+    File.read(tile_file)
+  rescue Errno::ENOENT
+    status 404
+    return ""
   end
 end
 
