@@ -16,7 +16,7 @@ CONFIG_FOLDER = ENV['RACK_ENV'] == 'production' ? '/configs' : "#{__dir__}/confi
 
 ROUTES = Dir["#{CONFIG_FOLDER}/*.{yaml,yml}"].map {YAML.load_file(_1, symbolize_names: true) }.reduce({}, :merge)
 
-SAFE_KEYS = %i[path target tileSize minzoom maxzoom mbtiles_file]
+SAFE_KEYS = %i[path target tileSize minzoom maxzoom mbtiles_file cache_settings]
 DB_SAFE_KEYS = SAFE_KEYS + %i[db]
 
 require_relative 'gost.rb' if ENV['GOST']
@@ -133,7 +133,8 @@ ROUTES.each do |_name, route|
 
     # 1) try MBTiles
     if (blob = route[:db][:tiles].where(zoom_level:z, tile_column:x, tile_row:tms).get(:tile_data))
-      headers "Cache-Control" => "public, max-age=86400", "X-Cache-Status" => "HIT"
+    max_age = route[:cache_settings]&.dig(:hit_max_age) || 86400
+    headers "Cache-Control" => "public, max-age=#{max_age}", "X-Cache-Status" => "HIT"
       content_type "image/png" # TODO
       return blob
     end
@@ -159,7 +160,8 @@ ROUTES.each do |_name, route|
     end
 
     if blob
-      headers "Cache-Control" => "public, max-age=300", "X-Cache-Status" => "MISS"
+      max_age = route[:cache_settings]&.dig(:miss_max_age) || 300
+      headers "Cache-Control" => "public, max-age=#{max_age}", "X-Cache-Status" => "MISS"
       content_type "image/png" # TODO
       blob
     else
