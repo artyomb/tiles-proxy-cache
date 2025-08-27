@@ -133,7 +133,7 @@ ROUTES.each do |_name, route|
 
     # 1) try MBTiles
     if (blob = route[:db][:tiles].where(zoom_level:z, tile_column:x, tile_row:tms).get(:tile_data))
-      headers "Cache-Control" => "public, max-age=86400"
+      headers "Cache-Control" => "public, max-age=86400", "X-Cache-Status" => "HIT"
       content_type "image/png" # TODO
       return blob
     end
@@ -159,12 +159,12 @@ ROUTES.each do |_name, route|
     end
 
     if blob
-      headers "Cache-Control" => "public, max-age=300"
+      headers "Cache-Control" => "public, max-age=300", "X-Cache-Status" => "MISS"
       content_type "image/png" # TODO
       blob
     else
       status 404
-      headers "Cache-Control" => "no-store"
+      headers "Cache-Control" => "no-store", "X-Cache-Status" => "ERROR"
       ""
     end
   end
