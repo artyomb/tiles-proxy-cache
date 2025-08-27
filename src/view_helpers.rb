@@ -9,9 +9,15 @@ module ViewHelpers
     min_zoom = route[:minzoom] || 1
     max_zoom = route[:maxzoom] || 20
     
+    cached_counts = route[:db][:tiles]
+      .select(:zoom_level, Sequel.function(:count, :zoom_level).as(:count))
+      .where(zoom_level: min_zoom..max_zoom)
+      .group(:zoom_level)
+      .to_hash(:zoom_level, :count)
+    
     (min_zoom..max_zoom).map do |z|
       possible = tiles_per_zoom(z)
-      cached = route[:db][:tiles].where(zoom_level: z).count
+      cached = cached_counts[z] || 0
       percentage = ((cached.to_f / possible) * 100).round(1)
       
       { zoom: z, cached: cached, possible: possible, percentage: percentage }
