@@ -265,7 +265,7 @@ helpers do
 
   def build_request_headers
     headers = {}
-    skip_headers = %w[host connection proxy-connection content-length]
+    skip_headers = %w[host connection proxy-connection content-length if-none-match if-modified-since]
 
     request.env.each do |key, value|
       next unless key.start_with?('HTTP_')
@@ -273,6 +273,7 @@ helpers do
       headers[header] = value unless skip_headers.include?(header.downcase)
     end
 
+    headers.merge!({ 'Cache-Control' => 'no-cache', 'Pragma' => 'no-cache' })
     headers
   end
 
