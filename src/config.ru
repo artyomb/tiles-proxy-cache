@@ -18,7 +18,7 @@ CONFIG_FOLDER = ENV['RACK_ENV'] == 'production' ? '/configs' : "#{__dir__}/confi
 
 ROUTES = Dir["#{CONFIG_FOLDER}/*.{yaml,yml}"].map {YAML.load_file(_1, symbolize_names: true) }.reduce({}, :merge)
 
-SAFE_KEYS = %i[path target tileSize minzoom maxzoom mbtiles_file cache_settings]
+SAFE_KEYS = %i[path target tileSize minzoom maxzoom mbtiles_file headers]
 DB_SAFE_KEYS = SAFE_KEYS + %i[db]
 
 require_relative 'gost.rb' if ENV['GOST']
@@ -135,8 +135,7 @@ ROUTES.each do |_name, route|
 
     # 1) try MBTiles
     if (blob = route[:db][:tiles].where(zoom_level:z, tile_column:x, tile_row:tms).get(:tile_data))
-    max_age = route[:cache_settings]&.dig(:hit_max_age) || 86400
-    headers "Cache-Control" => "public, max-age=#{max_age}", "X-Cache-Status" => "HIT"
+      headers build_response_headers(route, :hit)
       content_type "image/png" # TODO
       return blob
     end
@@ -154,7 +153,7 @@ ROUTES.each do |_name, route|
           route[:db][:misses].insert(z:z,x:x,y:y,ts:Time.now.to_i,reason:result[:reason],details:result[:details],response_body:Sequel.blob(result[:body] || ''))
 
           error_tile = generate_error_tile(result[:status])
-          headers "Cache-Control" => "no-store", "X-Cache-Status" => "ERROR"
+          headers build_response_headers(route, :error)
           content_type "image/png"
           return error_tile
         else
@@ -167,13 +166,12 @@ ROUTES.each do |_name, route|
     end
 
     if blob
-      max_age = route[:cache_settings]&.dig(:miss_max_age) || 300
-      headers "Cache-Control" => "public, max-age=#{max_age}", "X-Cache-Status" => "MISS"
+      headers build_response_headers(route, :miss)
       content_type "image/png" # TODO
       blob
     else
       status 404
-      headers "Cache-Control" => "no-store", "X-Cache-Status" => "ERROR"
+      headers build_response_headers(route, :error)
       ""
     end
   end
@@ -215,7 +213,7 @@ helpers do
     args = { method:       :get,
              target_path:  target_path,
              body_content: request.body,
-             headers:      build_request_headers.merge(route[:headers] || {})
+             headers:      build_request_headers.merge(route[:headers]&.dig(:request) || {})
     }
     args.delete(:body_content) if args[:method] in [:get, :head, :delete, :options]
 
@@ -274,6 +272,21 @@ helpers do
     end
 
     headers
+  end
+
+  def build_response_headers(route, cache_status)
+    response_headers = route[:headers]&.dig(:response) || {}
+    
+    case cache_status
+    when :hit
+      max_age = response_headers.dig(:'Cache-Control', :'max-age', :hit) || 86400
+      { "Cache-Control" => "public, max-age=#{max_age}", "X-Cache-Status" => "HIT" }
+    when :miss
+      max_age = response_headers.dig(:'Cache-Control', :'max-age', :miss) || 300
+      { "Cache-Control" => "public, max-age=#{max_age}", "X-Cache-Status" => "MISS" }
+    when :error, :else
+      { "Cache-Control" => "no-store", "X-Cache-Status" => "ERROR" }
+    end
   end
   def copy_headers_from_response(response_headers)
     skip_headers = %w[connection proxy-connection transfer-encoding content-length]
