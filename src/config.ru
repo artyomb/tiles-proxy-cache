@@ -213,7 +213,7 @@ helpers do
     args = { method:       :get,
              target_path:  target_path,
              body_content: request.body,
-             headers:      build_request_headers.merge(route[:headers]&.dig(:request) || {})
+             headers:       build_request_headers.merge((route[:headers]&.dig(:request) || {}).transform_keys(&:to_s))
     }
     args.delete(:body_content) if args[:method] in [:get, :head, :delete, :options]
 
