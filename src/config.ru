@@ -285,6 +285,7 @@ helpers do
 
   def generate_error_tile(status_code)
     tile_file = case status_code
+      when 401 then "#{ERROR_TILES_PATH}/error_401.png"
       when 403 then "#{ERROR_TILES_PATH}/error_403.png"
       when 404 then "#{ERROR_TILES_PATH}/error_404.png"
       when 429 then "#{ERROR_TILES_PATH}/error_429.png"
