@@ -153,7 +153,7 @@ ROUTES.each do |_name, route|
         if result[:error]
           route[:db][:misses].insert(z:z,x:x,y:y,ts:Time.now.to_i,reason:result[:reason],details:result[:details],response_body:Sequel.blob(result[:body] || ''))
 
-          error_tile = generate_error_tile(result[:status] || 500)
+          error_tile = generate_error_tile(result[:status])
           headers "Cache-Control" => "no-store", "X-Cache-Status" => "ERROR"
           content_type "image/png"
           return error_tile
@@ -230,7 +230,7 @@ helpers do
     
     error_checks.each do |reason, check|
       details = check.call
-      return { error: true, reason: reason, details: details, body: response.body } if details
+      return { error: true, reason: reason, details: details, status: response.status, body: response.body } if details
     end
 
     status response.status
@@ -289,6 +289,7 @@ helpers do
       when 404 then "#{ERROR_TILES_PATH}/error_404.png"
       when 429 then "#{ERROR_TILES_PATH}/error_429.png"
       when 500 then "#{ERROR_TILES_PATH}/error_500.png"
+      when nil then "#{ERROR_TILES_PATH}/error_other.png"
       else "#{ERROR_TILES_PATH}/error_other.png"
                 end
     File.read(tile_file)
