@@ -221,14 +221,16 @@ helpers do
 
     error_checks = {
       'http_error' => -> { ![200, 304, 206].include?(response.status) && response.status >= 400 ? "HTTP #{response.status}" : nil },
-      'empty_response' => -> { response.body.empty? ? 'Response body is empty' : nil },
       'small_size' => -> { response.body.size < 100 ? "Response size: #{response.body.size} bytes" : nil },
       'wrong_content_type' => -> { !response.headers['content-type']&.include?('image/') ? "Content-Type: #{response.headers['content-type']}" : nil }
     }
     
     error_checks.each do |reason, check|
       details = check.call
-      return { error: true, reason: reason, details: details, status: response.status, body: response.body } if details
+      if details
+        LOGGER.info("fetch_http error: #{reason} - #{details} (status: #{response.status}, source: #{route[:target]}, tile: #{z}/#{x}/#{y})")
+        return { error: true, reason: reason, details: details, status: response.status, body: response.body }
+      end
     end
 
     status response.status
