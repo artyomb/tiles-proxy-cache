@@ -8,6 +8,7 @@ require 'yaml'
 require 'autoforme'
 require_relative 'view_helpers'
 require_relative 'metadata_manager'
+require_relative 'background_tile_loader'
 
 StackServiceBase.rack_setup self
 
@@ -109,25 +110,12 @@ configure do
 
     route[:locks] = Hash.new { |h,k| h[k] = Mutex.new }
 
-    # Thread.new do
-    #   interval = 1.0 / RATE_PER_SEC
-    #   loop do
-    #     z,x,y = route[:queue].pop
-    #     k = key(z,x,y)
-    #     route[:locks][k].synchronize { fetch_and_store(route, z, x, y) }
-    #     sleep interval
-    #   rescue => e
-    #     warn "seeder err: #{e}"
-    #   end
-    # end
-
-    # --- periodic WAL checkpoint ---
-    # Thread.new do
-    #   loop do
-    #     sleep 30
-    #     route[:db].run "PRAGMA wal_checkpoint(PASSIVE)"
-    #   end
-    # end
+    if route.dig(:autoscan, :enabled)
+      loader = BackgroundTileLoader.new(route, _name.to_s)
+      route[:autoscan_loader] = loader
+      loader.start_scanning
+      loader.start_wal_checkpoint_thread
+    end
   end
 end
 
@@ -283,26 +271,6 @@ helpers do
     { error: false, data: response.body }
   end
 
-  # def fetch_and_store(route, z,x,y)
-  #   # skip if already present
-  #   return true if route[:db][:tiles].where(zoom_level:z, tile_column:x, tile_row:tms_y(z,y)).get(1)
-  #   # avoid hammering dead tiles (cache 404 for 10 min)
-  #   stale = (Time.now.to_i - 600)
-  #   miss = route[:db][:misses].where(z:z,x:x,y:y).reverse(:ts).get(:ts)
-  #   return false if miss && miss > stale
-  #
-  #   data = fetch_http(url(z,x,y))
-  #   if data
-  #     route[:db][:misses].insert_conflict(target: [:zoom_level,:tile_column,:tile_row],
-  #                           update: {tile_data: Sequel[:excluded][:tile_data]}).
-  #       insert(zoom_level:z, tile_column:x, tile_row:tms_y(z,y), tile_data:Sequel.blob(data))
-  #     true
-  #   else
-  #     route[:db][:misses].insert(z:z,x:x,y:y,ts:Time.now.to_i)
-  #     false
-  #   end
-  # end
-
   def request_headers
     env.inject({}){|acc, (k,v)| acc[$1.downcase] = v if k =~ /^http_(.*)/i; acc}.transform_keys(&:to_sym)
   end
@@ -357,6 +325,12 @@ helpers do
   rescue Errno::ENOENT
     status 404
     return ""
+  end
+end
+
+at_exit do
+  ROUTES.each do |_name, route|
+    route[:autoscan_loader]&.stop_scanning
   end
 end
 

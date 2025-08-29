@@ -1,0 +1,232 @@
+class BackgroundTileLoader
+  STRATEGIES = %w[grid human_like].freeze
+
+  def initialize(route, source_name)
+    @route = route
+    @source_name = source_name
+    @config = route[:autoscan] || {}
+    @running = false
+    @tiles_today = 0
+    @current_progress = {}
+    
+    setup_progress_table
+    load_todays_progress
+  end
+
+  def start_scanning
+    return unless @config[:enabled]
+    return if @running
+    
+    @running = true
+    LOGGER.info("Starting autoscan for #{@source_name}")
+    
+    @scan_thread = Thread.new do
+      begin
+        @config[:zoom_levels]&.each { |z| scan_zoom_level(z) }
+      rescue => e
+        LOGGER.error("Autoscan error for #{@source_name}: #{e}")
+      ensure
+        @running = false
+      end
+    end
+  end
+
+  def stop_scanning
+    return unless @running
+    
+    @running = false
+    @scan_thread&.join(5)
+    LOGGER.info("Stopped autoscan for #{@source_name}")
+  end
+
+  def start_wal_checkpoint_thread
+    Thread.new do
+      loop do
+        sleep 30
+        @route[:db].run "PRAGMA wal_checkpoint(PASSIVE)"
+      rescue => e
+        LOGGER.warn("WAL checkpoint error: #{e}")
+      end
+    end
+  end
+
+  private
+
+  def setup_progress_table
+    @route[:db].create_table?(:tile_scan_progress) do
+      String :source, null: false
+      Integer :zoom_level, null: false  
+      Integer :last_x, default: 0
+      Integer :last_y, default: 0
+      Integer :tiles_today, default: 0
+      String :last_scan_date
+      String :status, default: 'active'
+      primary_key [:source, :zoom_level]
+    end
+  end
+
+  def scan_zoom_level(z)
+    bounds = get_bounds_for_zoom(z)
+    return unless bounds
+    
+    @current_progress[z] = load_progress(z)
+    
+    case @config[:strategy]
+    when 'human_like' then human_like_strategy(z, bounds)
+    else grid_strategy(z, bounds)
+    end
+  end
+
+  def grid_strategy(z, bounds)
+    _, min_y, max_x, max_y = bounds
+    x, y = @current_progress[z].values_at(:x, :y)
+    
+    (x..max_x).each do |curr_x|
+      start_y = curr_x == x ? y : min_y
+      
+      (start_y..max_y).each do |curr_y|
+        return unless @running && within_daily_limit?
+        
+        next if tile_exists?(curr_x, curr_y, z)
+        
+        if fetch_tile(curr_x, curr_y, z)
+          @tiles_today += 1
+          save_progress(curr_x, curr_y, z) if @tiles_today % 10 == 0
+        end
+        
+        sleep calculate_delay
+      end
+    end
+  end
+
+  def human_like_strategy(z, bounds)
+    # TODO
+    grid_strategy(z, bounds)
+  end
+
+  def fetch_tile(x, y, z)
+    target_url = @route[:target].gsub('{z}', z.to_s).gsub('{x}', x.to_s).gsub('{y}', y.to_s)
+    headers = get_headers
+    
+    k = key(z, x, y)
+    @route[:locks][k].synchronize do
+      return false if tile_exists?(x, y, z)
+      
+      begin
+        response = @route[:client].get(target_url, nil, headers)
+        
+        if response.success? && response.body.size > 100
+          @route[:db][:tiles].insert_conflict(
+            target: [:zoom_level, :tile_column, :tile_row],
+            update: {tile_data: Sequel[:excluded][:tile_data]}
+          ).insert(
+            zoom_level: z,
+            tile_column: x, 
+            tile_row: tms_y(z, y),
+            tile_data: Sequel.blob(response.body)
+          )
+          true
+        else
+          LOGGER.debug("Failed to fetch tile #{z}/#{x}/#{y}: status=#{response.status}")
+          false
+        end
+      rescue => e
+        LOGGER.warn("Error fetching tile #{z}/#{x}/#{y}: #{e}")
+        false
+      end
+    end
+  end
+
+  def get_headers
+    config_headers = @route[:headers]&.dig(:request) || {}
+    
+    browser_headers = {
+      'Accept' => 'image/webp,image/apng,image/*,*/*;q=0.8',
+      'Accept-Language' => 'en-US,en;q=0.9,ru;q=0.8',
+      'Accept-Encoding' => 'gzip, deflate, br',
+      'DNT' => '1',
+      'Connection' => 'keep-alive',
+      'Upgrade-Insecure-Requests' => '1',
+      'Sec-Fetch-Dest' => 'image',
+      'Sec-Fetch-Mode' => 'no-cors',
+      'Sec-Fetch-Site' => 'cross-site',
+      'Cache-Control' => 'no-cache',
+      'Pragma' => 'no-cache'
+    }
+    
+    browser_headers.merge(config_headers)
+  end
+
+  def tile_exists?(x, y, z)
+    @route[:db][:tiles].where(zoom_level: z, tile_column: x, tile_row: tms_y(z, y)).get(1)
+  end
+
+  def within_daily_limit?
+    @tiles_today < (@config[:daily_limit] || 1000)
+  end
+
+  def calculate_delay
+    base_delay = 86400.0 / (@config[:daily_limit] || 1000)
+    (base_delay * (0.5 + rand)).clamp(1, 300)
+  end
+
+  def get_bounds_for_zoom(z)
+    bounds_str = @config[:bounds] || @route.dig(:metadata, :bounds) || "-180,-85.0511,180,85.0511"
+    west, south, east, north = bounds_str.split(',').map(&:to_f)
+    
+    [
+      [(west + 180) / 360 * (1 << z), 0].max.floor,
+      [(1 - Math.log(Math.tan(north * Math::PI / 180) + 1 / Math.cos(north * Math::PI / 180)) / Math::PI) / 2 * (1 << z), 0].max.floor,
+      [(east + 180) / 360 * (1 << z), (1 << z) - 1].min.floor,
+      [(1 - Math.log(Math.tan(south * Math::PI / 180) + 1 / Math.cos(south * Math::PI / 180)) / Math::PI) / 2 * (1 << z), (1 << z) - 1].min.floor
+    ]
+  end
+
+  def load_progress(z)
+    row = @route[:db][:tile_scan_progress].where(source: @source_name, zoom_level: z).first
+    
+    if row && row[:last_scan_date] == Date.today.to_s
+      @tiles_today = [@tiles_today, row[:tiles_today]].max
+      { x: row[:last_x], y: row[:last_y] }
+    else
+      { x: 0, y: 0 }
+    end
+  end
+
+  def save_progress(x, y, z)
+    @route[:db][:tile_scan_progress].insert_conflict(
+      target: [:source, :zoom_level],
+      update: { 
+        last_x: Sequel[:excluded][:last_x],
+        last_y: Sequel[:excluded][:last_y], 
+        tiles_today: Sequel[:excluded][:tiles_today],
+        last_scan_date: Sequel[:excluded][:last_scan_date]
+      }
+    ).insert(
+      source: @source_name,
+      zoom_level: z,
+      last_x: x,
+      last_y: y,
+      tiles_today: @tiles_today,
+      last_scan_date: Date.today.to_s
+    )
+  rescue => e
+    LOGGER.warn("Failed to save progress: #{e}")
+  end
+
+  def load_todays_progress
+    today = Date.today.to_s
+    total = @route[:db][:tile_scan_progress]
+      .where(source: @source_name, last_scan_date: today)
+      .sum(:tiles_today) || 0
+    @tiles_today = total
+  end
+
+  def tms_y(z, y)
+    (1 << z) - 1 - y
+  end
+
+  def key(z, x, y)
+    "#{z}/#{x}/#{y}"
+  end
+end
