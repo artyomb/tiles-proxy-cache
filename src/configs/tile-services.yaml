@@ -21,6 +21,9 @@ World_Imagery:
   query_params:
     # apikey: "your-satellite-api-key"  # Optional API key
   mbtiles_file: "world_imagery.mbtiles"
+  metadata:
+    bounds: "-180,-85.0511,180,85.0511"
+    center: "0,0,3"
 
 # Topographic map service
 Topographic:
@@ -39,6 +42,9 @@ Topographic:
           miss: 3600      # 1 hour
   query_params:
   mbtiles_file: "topographic.mbtiles"
+  metadata:
+    bounds: "-180,-85.0511,180,85.0511"
+    center: "0,0,2"
 
 # Open source map service
 OSM:
@@ -59,6 +65,9 @@ OSM:
           miss: 600       # 10 minutes
   query_params:
   mbtiles_file: "openstreetmap.mbtiles"
+  metadata:
+    bounds: "-180,-85.0511,180,85.0511"
+    center: "0,0,4"
 
 # Light theme map service
 CartoDB_Positron:
@@ -72,6 +81,9 @@ CartoDB_Positron:
   headers:
   query_params:
   mbtiles_file: "cartodb_positron.mbtiles"
+  metadata:
+    bounds: "-180,-85.0511,180,85.0511"
+    center: "0,0,3"
 
 # Custom service with authentication
 Custom_Service:
@@ -95,6 +107,9 @@ Custom_Service:
     apikey: "your-api-key"
     format: "png"
   mbtiles_file: "custom_service.mbtiles"
+  metadata:
+    bounds: "-180,-85.0511,180,85.0511"
+    center: "0,0,5"
 
 # High-resolution tiles service
 High_Res_Tiles:
@@ -116,6 +131,9 @@ High_Res_Tiles:
   query_params:
     scale: "2x"
   mbtiles_file: "high_res_tiles.mbtiles"
+  metadata:
+    bounds: "-180,-85.0511,180,85.0511"
+    center: "0,0,3"
 
 # Vector tiles service
 Vector_Tiles:
@@ -131,3 +149,6 @@ Vector_Tiles:
   query_params:
     access_token: "your-vector-tiles-token"
   mbtiles_file: "vector_tiles.mbtiles"
+  metadata:
+    bounds: "-180,-85.0511,180,85.0511"
+    center: "0,0,4"
