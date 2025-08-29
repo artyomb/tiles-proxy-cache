@@ -8,6 +8,8 @@ World_Imagery:
   tileSize: 256
   minzoom: 1
   maxzoom: 20
+  miss_timeout: 300        # 5 minutes timeout for error tiles
+  miss_max_records: 10000  # max miss records before cleanup
   headers:
     request:
       User-Agent: "TileProxy/1.0"
@@ -27,6 +29,8 @@ Topographic:
   tileSize: 256
   minzoom: 1
   maxzoom: 18
+  miss_timeout: 300        # 5 minutes timeout for error tiles
+  miss_max_records: 10000  # max miss records before cleanup
   headers:
     response:
       Cache-Control:
@@ -43,6 +47,8 @@ OSM:
   tileSize: 256
   minzoom: 1
   maxzoom: 19
+  miss_timeout: 300        # 5 minutes timeout for error tiles
+  miss_max_records: 10000  # max miss records before cleanup
   headers:
     request:
       User-Agent: "TileProxy/1.0"  # Required by some services
@@ -61,6 +67,8 @@ CartoDB_Positron:
   tileSize: 256
   minzoom: 1
   maxzoom: 18
+  miss_timeout: 300        # 5 minutes timeout for error tiles
+  miss_max_records: 10000  # max miss records before cleanup
   headers:
   query_params:
   mbtiles_file: "cartodb_positron.mbtiles"
@@ -72,6 +80,8 @@ Custom_Service:
   tileSize: 256
   minzoom: 0
   maxzoom: 22
+  miss_timeout: 300        # 5 minutes timeout for error tiles
+  miss_max_records: 10000  # max miss records before cleanup
   headers:
     request:
       Authorization: "Bearer your-access-token"
@@ -93,6 +103,8 @@ High_Res_Tiles:
   tileSize: 512  # Larger tiles for high-res displays
   minzoom: 1
   maxzoom: 20
+  miss_timeout: 300        # 5 minutes timeout for error tiles
+  miss_max_records: 10000  # max miss records before cleanup
   headers:
     request:
       Accept: "image/png,image/webp"
@@ -112,6 +124,8 @@ Vector_Tiles:
   tileSize: 256
   minzoom: 1
   maxzoom: 16
+  miss_timeout: 300        # 5 minutes timeout for error tiles
+  miss_max_records: 10000  # max miss records before cleanup
   headers:
     Accept: "application/x-protobuf"
   query_params:

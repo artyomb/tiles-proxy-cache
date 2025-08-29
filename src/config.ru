@@ -18,7 +18,7 @@ CONFIG_FOLDER = ENV['RACK_ENV'] == 'production' ? '/configs' : "#{__dir__}/confi
 
 ROUTES = Dir["#{CONFIG_FOLDER}/*.{yaml,yml}"].map {YAML.load_file(_1, symbolize_names: true) }.reduce({}, :merge)
 
-SAFE_KEYS = %i[path target tileSize minzoom maxzoom mbtiles_file]
+SAFE_KEYS = %i[path target tileSize minzoom maxzoom mbtiles_file miss_timeout miss_max_records]
 DB_SAFE_KEYS = SAFE_KEYS + %i[db]
 
 require_relative 'gost.rb' if ENV['GOST']
@@ -100,7 +100,7 @@ configure do
       File    :tile_data,   null:false
       unique [:zoom_level,:tile_column,:tile_row], name: :tile_index
     }
-    db.create_table?(:misses){ Integer :z; Integer :x; Integer :y; Integer :ts; String :reason; String :details; File :response_body }
+    db.create_table?(:misses){ Integer :z; Integer :x; Integer :y; Integer :ts; String :reason; String :details; Integer :status; File :response_body }
     route[:db] = db
 
     route[:locks] = Hash.new { |h,k| h[k] = Mutex.new }
@@ -140,7 +140,15 @@ ROUTES.each do |_name, route|
       return blob
     end
 
-    # 2) miss → fetch; lock per tile
+    # 2) check recent miss (rate limiting)
+    if (miss_status = should_skip_request?(route, z, x, y))
+      error_tile = generate_error_tile(miss_status)
+      headers build_response_headers(route, :error)
+      content_type "image/png"
+      return error_tile
+    end
+
+    # 3) miss → fetch; lock per tile
     k = key(z,x,y)
     blob = nil
     route[:locks][k].synchronize do
@@ -150,8 +158,8 @@ ROUTES.each do |_name, route|
         result = fetch_http(route:, x: params[:x], y:params[:y] , z: params[:z])
 
         if result[:error]
-          route[:db][:misses].insert(z:z,x:x,y:y,ts:Time.now.to_i,reason:result[:reason],details:result[:details],response_body:Sequel.blob(result[:body] || ''))
-
+          record_miss(route, z, x, y, result[:reason], result[:details], result[:status], result[:body])
+          
           error_tile = generate_error_tile(result[:status])
           headers build_response_headers(route, :error)
           content_type "image/png"
@@ -205,6 +213,38 @@ helpers do
   def tms_y(z,y) (1<<z) - 1 - y end
   def key(z,x,y) "#{z}/#{x}/#{y}" end
 
+  def should_skip_request?(route, z, x, y)
+    timeout = route[:miss_timeout] || 300
+    cutoff_time = Time.now.to_i - timeout
+    
+    # Lazy cleanup
+    route[:db][:misses].where(z: z, x: x, y: y, ts: 0..cutoff_time).delete
+
+    miss = route[:db][:misses].where(z: z, x: x, y: y).first
+    miss ? miss[:status] : nil
+  end
+
+  def cleanup_misses_if_needed(route)
+    max_records = route[:miss_max_records] || 10000
+    return unless route[:db][:misses].count > max_records
+    
+    # Keep 80% of max_records, delete oldest
+    keep_count = (max_records * 0.8).to_i
+    route[:db][:misses].reverse(:ts).offset(keep_count).delete
+  end
+
+  def record_miss(route, z, x, y, reason, details, status, body)
+    route[:db][:misses].where(z: z, x: x, y: y).delete
+    
+    route[:db][:misses].insert(
+      z: z, x: x, y: y, ts: Time.now.to_i,
+      reason: reason, details: details, status: status,
+      response_body: Sequel.blob(body || '')
+    )
+    
+    cleanup_misses_if_needed(route)
+  end
+
   def fetch_http(route:, x:, y:, z:)
     target_path = route[:target].gsub( '{z}', params[:z])
                                 .gsub( '{x}', params[:x])
@@ -217,7 +257,7 @@ helpers do
     }
     args.delete(:body_content) if args[:method] in [:get, :head, :delete, :options]
 
-    response = route[:client].send *args.values
+    response = route[:client].send(*args.values)
 
     error_checks = {
       'http_error' => -> { ![200, 304, 206].include?(response.status) && response.status >= 400 ? "HTTP #{response.status}" : nil },
