@@ -7,6 +7,7 @@ require 'stack-service-base'
 require 'yaml'
 require 'autoforme'
 require_relative 'view_helpers'
+require_relative 'metadata_manager'
 
 StackServiceBase.rack_setup self
 
@@ -102,6 +103,9 @@ configure do
     }
     db.create_table?(:misses){ Integer :z; Integer :x; Integer :y; Integer :ts; String :reason; String :details; Integer :status; File :response_body }
     route[:db] = db
+    MetadataManager.initialize_metadata(db, route, _name)
+    
+    route[:content_type] = "image/#{db[:metadata].where(name: 'format').get(:value) || 'png'}"
 
     route[:locks] = Hash.new { |h,k| h[k] = Mutex.new }
 
@@ -136,7 +140,7 @@ ROUTES.each do |_name, route|
     # 1) try MBTiles
     if (blob = route[:db][:tiles].where(zoom_level:z, tile_column:x, tile_row:tms).get(:tile_data))
       headers build_response_headers(route, :hit)
-      content_type "image/png" # TODO
+      content_type route[:content_type]
       return blob
     end
 
@@ -144,7 +148,7 @@ ROUTES.each do |_name, route|
     if (miss_status = should_skip_request?(route, z, x, y))
       error_tile = generate_error_tile(miss_status)
       headers build_response_headers(route, :error)
-      content_type "image/png"
+      content_type route[:content_type]
       return error_tile
     end
 
@@ -162,7 +166,7 @@ ROUTES.each do |_name, route|
           
           error_tile = generate_error_tile(result[:status])
           headers build_response_headers(route, :error)
-          content_type "image/png"
+          content_type route[:content_type]
           return error_tile
         else
           route[:db][:tiles].insert_conflict(target: [:zoom_level,:tile_column,:tile_row],
@@ -175,7 +179,7 @@ ROUTES.each do |_name, route|
 
     if blob
       headers build_response_headers(route, :miss)
-      content_type "image/png" # TODO
+      content_type route[:content_type]
       blob
     else
       status 404

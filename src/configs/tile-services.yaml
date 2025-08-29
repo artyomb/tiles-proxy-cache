@@ -24,6 +24,7 @@ World_Imagery:
   metadata:
     bounds: "-180,-85.0511,180,85.0511"
     center: "0,0,3"
+    type: "baselayer"  # baselayer | overlay
 
 # Topographic map service
 Topographic:
@@ -45,6 +46,7 @@ Topographic:
   metadata:
     bounds: "-180,-85.0511,180,85.0511"
     center: "0,0,2"
+    type: "baselayer"  # baselayer | overlay
 
 # Open source map service
 OSM:
@@ -68,6 +70,7 @@ OSM:
   metadata:
     bounds: "-180,-85.0511,180,85.0511"
     center: "0,0,4"
+    type: "baselayer"  # baselayer | overlay
 
 # Light theme map service
 CartoDB_Positron:
@@ -84,6 +87,7 @@ CartoDB_Positron:
   metadata:
     bounds: "-180,-85.0511,180,85.0511"
     center: "0,0,3"
+    type: "baselayer"  # baselayer | overlay
 
 # Custom service with authentication
 Custom_Service:
@@ -110,6 +114,7 @@ Custom_Service:
   metadata:
     bounds: "-180,-85.0511,180,85.0511"
     center: "0,0,5"
+    type: "baselayer"  # baselayer | overlay
 
 # High-resolution tiles service
 High_Res_Tiles:
@@ -134,6 +139,7 @@ High_Res_Tiles:
   metadata:
     bounds: "-180,-85.0511,180,85.0511"
     center: "0,0,3"
+    type: "baselayer"  # baselayer | overlay
 
 # Vector tiles service
 Vector_Tiles:
@@ -152,3 +158,4 @@ Vector_Tiles:
   metadata:
     bounds: "-180,-85.0511,180,85.0511"
     center: "0,0,4"
+    type: "overlay"  # baselayer | overlay
