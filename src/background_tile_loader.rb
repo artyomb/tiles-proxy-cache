@@ -22,7 +22,10 @@ class BackgroundTileLoader
     
     @scan_thread = Thread.new do
       begin
-        @config[:zoom_levels]&.each { |z| scan_zoom_level(z) }
+        start_zoom = @route[:minzoom] || 1
+        end_zoom = @config[:max_scan_zoom] || 20
+        
+        (start_zoom..end_zoom).each { |z| scan_zoom_level(z) }
       rescue => e
         LOGGER.error("Autoscan error for #{@source_name}: #{e}")
       ensure

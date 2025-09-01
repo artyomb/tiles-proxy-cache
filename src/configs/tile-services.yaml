@@ -28,7 +28,7 @@ World_Imagery:
   autoscan:
     enabled: false
     daily_limit: 5000
-    zoom_levels: [8, 9, 10]
+    max_scan_zoom: 10
     strategy: "grid"
 
 # Topographic map service
@@ -79,7 +79,7 @@ OSM:
   autoscan:
     enabled: true
     daily_limit: 10000
-    zoom_levels: [10, 11, 12]
+    max_scan_zoom: 12
     strategy: "human_like"
 
 # Light theme map service
