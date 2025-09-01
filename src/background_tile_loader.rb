@@ -22,7 +22,13 @@ class BackgroundTileLoader
     
     @scan_thread = Thread.new do
       begin
-        @config[:zoom_levels]&.each { |z| scan_zoom_level(z) }
+        @config[:zoom_levels]&.each do |z| 
+          scan_zoom_level(z)
+          if @tiles_today >= (@config[:daily_limit] || 1000)
+            LOGGER.info("Daily limit reached for #{@source_name}, waiting for next day")
+            break
+          end
+        end
       rescue => e
         LOGGER.error("Autoscan error for #{@source_name}: #{e}")
       ensure
@@ -85,7 +91,13 @@ class BackgroundTileLoader
       start_y = curr_x == x ? y : min_y
       
       (start_y..max_y).each do |curr_y|
-        return unless @running && within_daily_limit?
+        return unless @running
+        
+        if @tiles_today >= (@config[:daily_limit] || 1000)
+          LOGGER.info("Daily limit reached for #{@source_name} at zoom #{z}, stopping at #{curr_x},#{curr_y}")
+          save_progress(curr_x, curr_y, z)
+          return
+        end
         
         next if tile_exists?(curr_x, curr_y, z)
         
@@ -97,6 +109,7 @@ class BackgroundTileLoader
         sleep calculate_delay
       end
     end
+    LOGGER.info("Completed zoom level #{z} for #{@source_name}")
   end
 
   def human_like_strategy(z, bounds)
@@ -159,10 +172,6 @@ class BackgroundTileLoader
 
   def tile_exists?(x, y, z)
     @route[:db][:tiles].where(zoom_level: z, tile_column: x, tile_row: tms_y(z, y)).get(1)
-  end
-
-  def within_daily_limit?
-    @tiles_today < (@config[:daily_limit] || 1000)
   end
 
   def calculate_delay
