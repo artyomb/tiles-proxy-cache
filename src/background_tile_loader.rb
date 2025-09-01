@@ -32,7 +32,7 @@ class BackgroundTileLoader
         update_all_statuses('error')
       ensure
         @running = false
-        update_all_statuses('stopped') unless e
+        update_active_status('stopped') unless e
       end
     end
   end
@@ -41,7 +41,7 @@ class BackgroundTileLoader
     return unless @running
     
     @running = false
-    update_all_statuses('stopped')
+    update_active_status('stopped')
     @scan_thread&.join(5)
     LOGGER.info("Stopped autoscan for #{@source_name}")
   end
@@ -259,6 +259,12 @@ class BackgroundTileLoader
     LOGGER.warn("Failed to update all statuses: #{e}")
   end
 
+  def update_active_status(status)
+    @route[:db][:tile_scan_progress].where(source: @source_name, status: 'active').update(status: status)
+  rescue => e
+    LOGGER.warn("Failed to update active status: #{e}")
+  end
+
   def initialize_zoom_progress
     start_zoom = @route[:minzoom] || 1
     end_zoom = @config[:max_scan_zoom] || 20
@@ -266,9 +272,7 @@ class BackgroundTileLoader
     (start_zoom..end_zoom).each do |z|
       @route[:db][:tile_scan_progress].insert_conflict(
         target: [:source, :zoom_level],
-        update: {
-          status: Sequel[:excluded][:status]
-        }
+        update: {}
       ).insert(
         source: @source_name,
         zoom_level: z,
@@ -288,8 +292,16 @@ class BackgroundTileLoader
     expected = expected_tiles_count(z)
     actual_tiles = @route[:db][:tiles].where(zoom_level: z).count
     
+    row = @route[:db][:tile_scan_progress].where(source: @source_name, zoom_level: z).first
+    current_status = row&.dig(:status)
+    
     if actual_tiles >= expected
       true
+    elsif current_status == 'completed' && actual_tiles < expected
+      reset_zoom_progress(z)
+      false
+    elsif ['active', 'stopped'].include?(current_status)
+      false
     else
       reset_zoom_progress(z)
       false
