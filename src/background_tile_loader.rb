@@ -73,6 +73,12 @@ class BackgroundTileLoader
   end
 
   def scan_zoom_level(z)
+    if zoom_complete?(z)
+      LOGGER.info("Zoom #{z} already complete for #{@source_name}")
+      update_status(z, 'completed')
+      return
+    end
+
     bounds = get_bounds_for_zoom(z)
     return unless bounds
     
@@ -84,7 +90,10 @@ class BackgroundTileLoader
     else grid_strategy(z, bounds)
     end
     
-    save_progress(@current_progress[z][:x], @current_progress[z][:y], z)
+    cleanup_zoom_misses(z)
+    final_x = @current_progress[z]&.dig(:x) || 0
+    final_y = @current_progress[z]&.dig(:y) || 0
+    save_progress(final_x, final_y, z)
     update_status(z, 'completed')
   end
 
@@ -97,8 +106,6 @@ class BackgroundTileLoader
       
       (start_y..max_y).each do |curr_y|
         return unless @running
-        
-        next if tile_exists?(curr_x, curr_y, z)
         
         if fetch_tile(curr_x, curr_y, z)
           @tiles_today += 1
@@ -274,5 +281,42 @@ class BackgroundTileLoader
     end
   rescue => e
     LOGGER.warn("Failed to initialize zoom progress: #{e}")
+  end
+
+  def zoom_complete?(z)
+    cleanup_zoom_misses(z)
+    expected = expected_tiles_count(z)
+    actual_tiles = @route[:db][:tiles].where(zoom_level: z).count
+    
+    if actual_tiles >= expected
+      true
+    else
+      reset_zoom_progress(z)
+      false
+    end
+  end
+
+  def expected_tiles_count(z)
+    bounds = get_bounds_for_zoom(z)
+    return 0 unless bounds
+    
+    min_x, min_y, max_x, max_y = bounds
+    (max_x - min_x + 1) * (max_y - min_y + 1)
+  end
+
+  def cleanup_zoom_misses(z)
+    cutoff_time = Time.now.to_i - (@route[:miss_timeout] || 300)
+    @route[:db][:misses].where(z: z, ts: 0..cutoff_time).delete
+  end
+
+  def reset_zoom_progress(z)
+    @route[:db][:tile_scan_progress].where(source: @source_name, zoom_level: z).update(
+      last_x: 0,
+      last_y: 0,
+      status: 'waiting'
+    )
+    LOGGER.info("Reset progress for zoom #{z} of #{@source_name}")
+  rescue => e
+    LOGGER.warn("Failed to reset progress for zoom #{z}: #{e}")
   end
 end
