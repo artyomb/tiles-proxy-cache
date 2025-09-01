@@ -19,6 +19,7 @@ class BackgroundTileLoader
     
     @running = true
     LOGGER.info("Starting autoscan for #{@source_name}")
+    initialize_zoom_progress
     
     @scan_thread = Thread.new do
       begin
@@ -28,8 +29,10 @@ class BackgroundTileLoader
         (start_zoom..end_zoom).each { |z| scan_zoom_level(z) }
       rescue => e
         LOGGER.error("Autoscan error for #{@source_name}: #{e}")
+        update_all_statuses('error')
       ensure
         @running = false
+        update_all_statuses('stopped') unless e
       end
     end
   end
@@ -38,6 +41,7 @@ class BackgroundTileLoader
     return unless @running
     
     @running = false
+    update_all_statuses('stopped')
     @scan_thread&.join(5)
     LOGGER.info("Stopped autoscan for #{@source_name}")
   end
@@ -63,7 +67,7 @@ class BackgroundTileLoader
       Integer :last_y, default: 0
       Integer :tiles_today, default: 0
       String :last_scan_date
-      String :status, default: 'active'
+      String :status, default: 'waiting'
       primary_key [:source, :zoom_level]
     end
   end
@@ -73,11 +77,15 @@ class BackgroundTileLoader
     return unless bounds
     
     @current_progress[z] = load_progress(z)
+    update_status(z, 'active')
     
     case @config[:strategy]
     when 'human_like' then human_like_strategy(z, bounds)
     else grid_strategy(z, bounds)
     end
+    
+    save_progress(@current_progress[z][:x], @current_progress[z][:y], z)
+    update_status(z, 'completed')
   end
 
   def grid_strategy(z, bounds)
@@ -94,6 +102,8 @@ class BackgroundTileLoader
         
         if fetch_tile(curr_x, curr_y, z)
           @tiles_today += 1
+          @current_progress[z][:x] = curr_x
+          @current_progress[z][:y] = curr_y
           save_progress(curr_x, curr_y, z) if @tiles_today % 10 == 0
         end
         
@@ -228,5 +238,41 @@ class BackgroundTileLoader
 
   def key(z, x, y)
     "#{z}/#{x}/#{y}"
+  end
+
+  def update_status(zoom_level, status)
+    @route[:db][:tile_scan_progress].where(source: @source_name, zoom_level: zoom_level).update(status: status)
+  rescue => e
+    LOGGER.warn("Failed to update status for zoom #{zoom_level}: #{e}")
+  end
+
+  def update_all_statuses(status)
+    @route[:db][:tile_scan_progress].where(source: @source_name).update(status: status)
+  rescue => e
+    LOGGER.warn("Failed to update all statuses: #{e}")
+  end
+
+  def initialize_zoom_progress
+    start_zoom = @route[:minzoom] || 1
+    end_zoom = @config[:max_scan_zoom] || 20
+    
+    (start_zoom..end_zoom).each do |z|
+      @route[:db][:tile_scan_progress].insert_conflict(
+        target: [:source, :zoom_level],
+        update: {
+          status: Sequel[:excluded][:status]
+        }
+      ).insert(
+        source: @source_name,
+        zoom_level: z,
+        last_x: 0,
+        last_y: 0,
+        tiles_today: 0,
+        last_scan_date: nil,
+        status: 'waiting'
+      )
+    end
+  rescue => e
+    LOGGER.warn("Failed to initialize zoom progress: #{e}")
   end
 end
