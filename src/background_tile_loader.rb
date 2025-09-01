@@ -22,13 +22,7 @@ class BackgroundTileLoader
     
     @scan_thread = Thread.new do
       begin
-        @config[:zoom_levels]&.each do |z| 
-          scan_zoom_level(z)
-          if @tiles_today >= (@config[:daily_limit] || 1000)
-            LOGGER.info("Daily limit reached for #{@source_name}, waiting for next day")
-            break
-          end
-        end
+        @config[:zoom_levels]&.each { |z| scan_zoom_level(z) }
       rescue => e
         LOGGER.error("Autoscan error for #{@source_name}: #{e}")
       ensure
@@ -92,12 +86,6 @@ class BackgroundTileLoader
       
       (start_y..max_y).each do |curr_y|
         return unless @running
-        
-        if @tiles_today >= (@config[:daily_limit] || 1000)
-          LOGGER.info("Daily limit reached for #{@source_name} at zoom #{z}, stopping at #{curr_x},#{curr_y}")
-          save_progress(curr_x, curr_y, z)
-          return
-        end
         
         next if tile_exists?(curr_x, curr_y, z)
         
