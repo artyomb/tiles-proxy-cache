@@ -1,6 +1,6 @@
 FROM ruby:3.4.4-slim-bookworm AS base
 
-RUN apt update && apt --fix-missing install -y build-essential pkg-config libpq-dev curl cmake libssl-dev \
+RUN apt update && apt --fix-missing install -y build-essential pkg-config libpq-dev curl cmake libssl-dev file \
      && rm -rf /var/lib/apt/lists/*
 
 RUN echo 'gem: --no-document' >> ~/.gemrc
@@ -22,7 +22,7 @@ FROM base AS tests
 RUN bundle exec rspec
 
 FROM ruby:3.4.4-slim-bookworm AS deploy
-RUN apt update && apt install --fix-missing -y bash curl libssl-dev bash curl wget libpq-dev \
+RUN apt update && apt install --fix-missing -y bash curl libssl-dev bash curl wget libpq-dev file \
      && rm -rf /var/lib/apt/lists/*
 
 COPY --from=base /usr/local/bundle /usr/local/bundle
