@@ -25,8 +25,6 @@ DB_SAFE_KEYS = SAFE_KEYS + %i[db]
 
 require_relative 'gost.rb' if ENV['GOST']
 
-RATE_PER_SEC = 1
-
 get "/" do
   @total_sources = ROUTES.length
   @total_tiles = ROUTES.values.sum { |route| route[:db][:tiles].count }
@@ -243,14 +241,8 @@ helpers do
                                 .gsub( '{x}', params[:x])
                                 .gsub( '{y}', params[:y])
 
-    args = { method:       :get,
-             target_path:  target_path,
-             body_content: request.body,
-             headers:       build_request_headers.merge((route[:headers]&.dig(:request) || {}).transform_keys(&:to_s))
-    }
-    args.delete(:body_content) if args[:method] in [:get, :head, :delete, :options]
-
-    response = route[:client].send(*args.values)
+    headers = build_request_headers.merge((route[:headers]&.dig(:request) || {}).transform_keys(&:to_s))
+    response = route[:client].get(target_path, nil, headers)
 
     error_checks = {
       'http_error' => -> { ![200, 304, 206].include?(response.status) && response.status >= 400 ? "HTTP #{response.status}" : nil },
@@ -270,10 +262,6 @@ helpers do
     copy_headers_from_response(response.headers)
 
     { error: false, data: response.body }
-  end
-
-  def request_headers
-    env.inject({}){|acc, (k,v)| acc[$1.downcase] = v if k =~ /^http_(.*)/i; acc}.transform_keys(&:to_sym)
   end
 
   def build_request_headers
