@@ -5,7 +5,6 @@
 World_Imagery:
   path: "/wi/:z/:x/:y"
   target: "https://example-satellite.com/imagery/tiles/{z}/{y}/{x}.png"
-  tileSize: 256
   minzoom: 1
   maxzoom: 20
   miss_timeout: 300        # 5 minutes timeout for error tiles
@@ -35,7 +34,6 @@ World_Imagery:
 Topographic:
   path: "/topo/:z/:x/:y"
   target: "https://example-topo.com/maps/tiles/{z}/{y}/{x}.png"
-  tileSize: 256
   minzoom: 1
   maxzoom: 18
   miss_timeout: 300        # 5 minutes timeout for error tiles
@@ -57,7 +55,6 @@ Topographic:
 OSM:
   path: "/osm/:z/:x/:y"
   target: "https://example-osm.org/tiles/{z}/{x}/{y}.png"
-  tileSize: 256
   minzoom: 1
   maxzoom: 19
   miss_timeout: 300        # 5 minutes timeout for error tiles
@@ -86,7 +83,6 @@ OSM:
 CartoDB_Positron:
   path: "/cartodb/:z/:x/:y"
   target: "https://example-cartodb.com/light/{z}/{x}/{y}.png"
-  tileSize: 256
   minzoom: 1
   maxzoom: 18
   miss_timeout: 300        # 5 minutes timeout for error tiles
@@ -103,7 +99,6 @@ CartoDB_Positron:
 Custom_Service:
   path: "/custom/:z/:x/:y"
   target: "https://your-tile-service.com/tiles/{z}/{x}/{y}.png"
-  tileSize: 256
   minzoom: 0
   maxzoom: 22
   miss_timeout: 300        # 5 minutes timeout for error tiles
@@ -130,7 +125,6 @@ Custom_Service:
 High_Res_Tiles:
   path: "/highres/:z/:x/:y"
   target: "https://example-highres.com/tiles/{z}/{x}/{y}@2x.png"
-  tileSize: 512  # Larger tiles for high-res displays
   minzoom: 1
   maxzoom: 20
   miss_timeout: 300        # 5 minutes timeout for error tiles
@@ -155,7 +149,6 @@ High_Res_Tiles:
 Vector_Tiles:
   path: "/vector/:z/:x/:y"
   target: "https://example-vector.com/tiles/{z}/{x}/{y}.pbf"
-  tileSize: 256
   minzoom: 1
   maxzoom: 16
   miss_timeout: 300        # 5 minutes timeout for error tiles
