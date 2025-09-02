@@ -107,14 +107,14 @@ class BackgroundTileLoader
       (start_y..max_y).each do |curr_y|
         return unless @running
 
+        @current_progress[z][:x] = curr_x
+        @current_progress[z][:y] = curr_y
+
         if fetch_tile(curr_x, curr_y, z)
           @tiles_today += 1
-          @current_progress[z][:x] = curr_x
-          @current_progress[z][:y] = curr_y
           save_progress(curr_x, curr_y, z) if @tiles_today % 10 == 0
+          sleep calculate_delay
         end
-
-        sleep calculate_delay
       end
     end
     LOGGER.info("Completed zoom level #{z} for #{@source_name}")
