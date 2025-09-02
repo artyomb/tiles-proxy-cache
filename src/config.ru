@@ -9,6 +9,7 @@ require 'autoforme'
 require_relative 'view_helpers'
 require_relative 'metadata_manager'
 require_relative 'background_tile_loader'
+require_relative 'database_manager'
 
 StackServiceBase.rack_setup self
 
@@ -77,37 +78,7 @@ configure do
     end
     route[:client] = client
 
-    db_path = "sqlite://" + route[:mbtiles_file]
-    db = Sequel.connect(db_path, max_connections:8)
-
-    db.run "PRAGMA page_size=4096"      # or 8192/16384; set once
-    db.run "VACUUM"
-
-    db.run "PRAGMA journal_mode=WAL"
-    db.run "PRAGMA synchronous=NORMAL"
-    db.run "PRAGMA locking_mode=NORMAL"
-    db.run "PRAGMA busy_timeout=10000"
-    db.run "PRAGMA temp_store=MEMORY"
-    db.run "PRAGMA cache_size=-131072"     # ~128 MiB
-    db.run "PRAGMA mmap_size=536870912"    # 512 MiB
-    db.run "PRAGMA wal_autocheckpoint=0"
-
-    db.create_table?(:metadata){ String :name, null:false; String :value; index :name }
-    db.create_table?(:tiles){
-      Integer :zoom_level,  null:false
-      Integer :tile_column, null:false
-      Integer :tile_row,    null:false
-      File    :tile_data,   null:false
-      unique [:zoom_level,:tile_column,:tile_row], name: :tile_index
-    }
-    db.create_table?(:misses){ Integer :z; Integer :x; Integer :y; Integer :ts; String :reason; String :details; Integer :status; File :response_body }
-    route[:db] = db
-    MetadataManager.initialize_metadata(db, route, _name)
-    
-    route[:content_type] = "image/#{db[:metadata].where(name: 'format').get(:value) || 'png'}"
-    route[:tile_size] = db[:metadata].where(name: 'tileSize').get(:value).to_i
-
-    route[:locks] = Hash.new { |h,k| h[k] = Mutex.new }
+    DatabaseManager.setup_route_database(route, _name)
 
     if route.dig(:autoscan, :enabled)
       loader = BackgroundTileLoader.new(route, _name.to_s)
