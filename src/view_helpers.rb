@@ -54,7 +54,7 @@ module ViewHelpers
         source_name => {
           type: "raster",
           tiles: ["#{base_url}#{route[:path].gsub(':z', '{z}').gsub(':x', '{x}').gsub(':y', '{y}')}"],
-          tileSize: route[:tileSize] || 256,
+          tileSize: route[:tile_size],
           minzoom: route[:minzoom] || 1,
           maxzoom: route[:maxzoom] || 20
         }

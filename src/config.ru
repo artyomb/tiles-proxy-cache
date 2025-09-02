@@ -20,7 +20,7 @@ CONFIG_FOLDER = ENV['RACK_ENV'] == 'production' ? '/configs' : "#{__dir__}/confi
 
 ROUTES = Dir["#{CONFIG_FOLDER}/*.{yaml,yml}"].map {YAML.load_file(_1, symbolize_names: true) }.reduce({}, :merge)
 
-SAFE_KEYS = %i[path target tileSize minzoom maxzoom mbtiles_file miss_timeout miss_max_records metadata autoscan]
+SAFE_KEYS = %i[path target minzoom maxzoom mbtiles_file miss_timeout miss_max_records metadata autoscan]
 DB_SAFE_KEYS = SAFE_KEYS + %i[db]
 
 require_relative 'gost.rb' if ENV['GOST']
@@ -107,6 +107,7 @@ configure do
     MetadataManager.initialize_metadata(db, route, _name)
     
     route[:content_type] = "image/#{db[:metadata].where(name: 'format').get(:value) || 'png'}"
+    route[:tile_size] = db[:metadata].where(name: 'tileSize').get(:value).to_i
 
     route[:locks] = Hash.new { |h,k| h[k] = Mutex.new }
 
@@ -187,7 +188,7 @@ ROUTES.each do |_name, route|
       name: "Raster",
       sources: {
         raster: { type: "raster", tiles: [host + path],
-                  tileSize: route[:tileSize] || 256,
+                  tileSize: route[:tile_size],
                   minzoom: route[:minzoom] || 1,
                   maxzoom: route[:maxzoom] || 20
         }

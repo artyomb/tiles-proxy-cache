@@ -54,7 +54,7 @@
               .info-value = "#{route[:minzoom] || 1} - #{route[:maxzoom] || 20}"
             .info-item
               .info-label Tile Size
-              .info-value = "#{route[:tileSize] || 256}px"
+              .info-value = "#{route[:tile_size]}px"
             .info-item
               .info-label Cached Tiles
               .info-value = route[:db][:tiles].count
