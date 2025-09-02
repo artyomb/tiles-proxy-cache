@@ -15,8 +15,6 @@ StackServiceBase.rack_setup self
 
 START_TIME = Time.now
 
-ERROR_TILES_PATH = "#{__dir__}/assets/error_tiles"
-
 CONFIG_FOLDER = ENV['RACK_ENV'] == 'production' ? '/configs' : "#{__dir__}/configs"
 
 ROUTES = Dir["#{CONFIG_FOLDER}/*.{yaml,yml}"].map {YAML.load_file(_1, symbolize_names: true) }.reduce({}, :merge)
@@ -272,14 +270,14 @@ helpers do
   end
 
   def generate_error_tile(status_code)
+    error_tiles_path = "#{__dir__}/assets/error_tiles"
     tile_file = case status_code
-      when 401 then "#{ERROR_TILES_PATH}/error_401.png"
-      when 403 then "#{ERROR_TILES_PATH}/error_403.png"
-      when 404 then "#{ERROR_TILES_PATH}/error_404.png"
-      when 429 then "#{ERROR_TILES_PATH}/error_429.png"
-      when 500 then "#{ERROR_TILES_PATH}/error_500.png"
-      when nil then "#{ERROR_TILES_PATH}/error_other.png"
-      else "#{ERROR_TILES_PATH}/error_other.png"
+      when 401 then "#{error_tiles_path}/error_401.png"
+      when 403 then "#{error_tiles_path}/error_403.png"
+      when 404 then "#{error_tiles_path}/error_404.png"
+      when 429 then "#{error_tiles_path}/error_429.png"
+      when 500 then "#{error_tiles_path}/error_500.png"
+      else "#{error_tiles_path}/error_other.png"
                 end
     File.read(tile_file)
   rescue Errno::ENOENT
