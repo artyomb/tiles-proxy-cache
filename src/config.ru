@@ -17,7 +17,7 @@ START_TIME = Time.now
 
 CONFIG_FOLDER = ENV['RACK_ENV'] == 'production' ? '/configs' : "#{__dir__}/configs"
 
-ROUTES = Dir["#{CONFIG_FOLDER}/*.{yaml,yml}"].map {YAML.load_file(_1, symbolize_names: true) }.reduce({}, :merge)
+ROUTES = Dir["#{CONFIG_FOLDER}/*.{yaml,yml}"].map { YAML.load_file(_1, symbolize_names: true) }.reduce({}, :merge)
 
 SAFE_KEYS = %i[path target minzoom maxzoom mbtiles_file miss_timeout miss_max_records metadata autoscan]
 DB_SAFE_KEYS = SAFE_KEYS + %i[db]
@@ -35,42 +35,29 @@ get "/" do
 end
 
 get "/db" do
-  source = params[:source]&.strip || ROUTES.keys.first.to_s
-  return status(400), "Invalid source parameter" unless source&.match?(/^[A-Za-z0-9_-]+$/)
-  
-  route = ROUTES[source.to_sym]
-  return status(404), "Source not found" unless route
-  
+  source, route = validate_and_get_route(params[:source] || ROUTES.keys.first.to_s)
   @source, @route = source, route.slice(*DB_SAFE_KEYS)
   slim :database
 end
 
 get "/map" do
-  source = params[:source]&.strip
-  return status(400), "Invalid source parameter" unless source&.match?(/^[A-Za-z0-9_-]+$/)
-  
-  @route = ROUTES[source.to_sym]
-  @route ? slim(:map, layout: :map_layout) : 
-    (status 404; "Source not found")
+  _, @route = validate_and_get_route(params[:source])
+  slim(:map, layout: :map_layout)
 end
 
 get "/map/style" do
-  source = params[:source]&.strip
-  return status(400), "Invalid source parameter" unless source&.match?(/^[A-Za-z0-9_-]+$/)
-  
-  route = ROUTES[source.to_sym]
-  route ? (content_type :json; generate_single_source_style(route, source)) :
-    (status 404; "Source not found")
+  source, route = validate_and_get_route(params[:source])
+  content_type :json
+  generate_single_source_style(route, source)
 end
 
 configure do
   ROUTES.each do |_name, route|
-    uri = URI.parse route[:target].gsub( /[{}]/, '_')
+    uri = URI.parse route[:target].gsub(/[{}]/, '_')
 
-    client = Faraday.new( url: "#{uri.scheme}://#{uri.host}", ssl: { verify: false }) do |f|
-      f.request  :retry, max: 2, interval: 0.2, backoff_factor: 2
-      # f.response :json, content_type: /\bjson$/
-      f.options.timeout      = 15
+    client = Faraday.new(url: "#{uri.scheme}://#{uri.host}", ssl: { verify: false }) do |f|
+      f.request :retry, max: 2, interval: 0.2, backoff_factor: 2
+      f.options.timeout = 15
       f.options.open_timeout = 10
       f.adapter :net_http_persistent, pool_size: 10, idle_timeout: 60
     end
@@ -87,65 +74,25 @@ configure do
   end
 end
 
-
 ROUTES.each do |_name, route|
-  get route[:path]  do
-    z = params[:z].to_i; x = params[:x].to_i; y = params[:y].to_i
-    tms = tms_y(z,y)
+  get route[:path] do
+    z, x, y = params[:z].to_i, params[:x].to_i, params[:y].to_i
+    tms = tms_y(z, y)
 
-    # 1) try MBTiles
-    if (blob = route[:db][:tiles].where(zoom_level:z, tile_column:x, tile_row:tms).get(:tile_data))
-      headers build_response_headers(route, :hit)
-      content_type route[:content_type]
-      return blob
+    if (blob = get_cached_tile(route, z, x, tms))
+      return serve_tile(route, blob, :hit)
     end
 
-    # 2) check recent miss (rate limiting)
     if (miss_status = should_skip_request?(route, z, x, y))
-      error_tile = generate_error_tile(miss_status)
-      headers build_response_headers(route, :error)
-      content_type route[:content_type]
-      return error_tile
+      return serve_error_tile(route, miss_status)
     end
 
-    # 3) miss → fetch; lock per tile
-    k = key(z,x,y)
-    blob = nil
-    route[:locks][k].synchronize do
-      # re-check after acquiring lock
-      blob = route[:db][:tiles].where(zoom_level:z, tile_column:x, tile_row:tms).get(:tile_data)
-      unless blob
-        result = fetch_http(route:, x: params[:x], y:params[:y] , z: params[:z])
-
-        if result[:error]
-          record_miss(route, z, x, y, result[:reason], result[:details], result[:status], result[:body])
-          
-          error_tile = generate_error_tile(result[:status])
-          headers build_response_headers(route, :error)
-          content_type route[:content_type]
-          return error_tile
-        else
-          route[:db][:tiles].insert_conflict(target: [:zoom_level,:tile_column,:tile_row],
-                                update: {tile_data: Sequel[:excluded][:tile_data]}).
-            insert(zoom_level:z, tile_column:x, tile_row:tms, tile_data:Sequel.blob(result[:data]))
-          blob = result[:data]
-        end
-      end
-    end
-
-    if blob
-      headers build_response_headers(route, :miss)
-      content_type route[:content_type]
-      blob
-    else
-      status 404
-      headers build_response_headers(route, :error)
-      ""
-    end
+    blob = fetch_with_lock(route, z, x, y, tms)
+    blob ? serve_tile(route, blob, :miss) : serve_error_tile(route, 404)
   end
 
-  get route[:path].gsub( /\/:[zxy]/, '') do
-    host = request.env['rack.url_scheme'] + '://'+  request.env['HTTP_HOST']
+  get route[:path].gsub(/\/:[zxy]/, '') do
+    host = request.env['rack.url_scheme'] + '://' + request.env['HTTP_HOST']
     path = route[:path].gsub(':z', '{z}').gsub(':x', '{x}').gsub(':y', '{y}')
 
     content_type :json
@@ -167,117 +114,159 @@ ROUTES.each do |_name, route|
   end
 end
 
-
 helpers do
   include ViewHelpers
-  def tms_y(z,y) (1<<z) - 1 - y end
-  def key(z,x,y) "#{z}/#{x}/#{y}" end
+
+  def tms_y(z, y) = (1 << z) - 1 - y
+
+  def key(z, x, y) = "#{z}/#{x}/#{y}"
+
+  def validate_and_get_route(source)
+    source = source&.strip
+    halt 400, "Invalid source parameter" unless source&.match?(/^[A-Za-z0-9_-]+$/)
+
+    route = ROUTES[source.to_sym]
+    halt 404, "Source not found" unless route
+
+    [source, route]
+  end
+
+  def get_cached_tile(route, z, x, tms)
+    route[:db][:tiles].where(zoom_level: z, tile_column: x, tile_row: tms).get(:tile_data)
+  end
+
+  def serve_tile(route, blob, status)
+    headers build_response_headers(route, status)
+    content_type route[:content_type]
+    blob
+  end
+
+  def serve_error_tile(route, status_code)
+    headers build_response_headers(route, :error)
+    content_type route[:content_type]
+    generate_error_tile(status_code)
+  end
+
+  def fetch_with_lock(route, z, x, y, tms)
+    route[:locks][key(z, x, y)].synchronize do
+      return blob if (blob = get_cached_tile(route, z, x, tms))
+
+      result = fetch_http(route:, x: x, y: y, z: z)
+
+      if result[:error]
+        record_miss(route, z, x, y, result[:reason], result[:details], result[:status], result[:body])
+        return nil
+      end
+
+      route[:db][:tiles].insert_conflict(target: [:zoom_level, :tile_column, :tile_row],
+                                         update: { tile_data: Sequel[:excluded][:tile_data] })
+                        .insert(zoom_level: z, tile_column: x, tile_row: tms,
+                                tile_data: Sequel.blob(result[:data]))
+      result[:data]
+    end
+  end
 
   def should_skip_request?(route, z, x, y)
     timeout = route[:miss_timeout] || 300
     cutoff_time = Time.now.to_i - timeout
-    
-    # Lazy cleanup
+
     route[:db][:misses].where(z: z, x: x, y: y, ts: 0..cutoff_time).delete
 
     miss = route[:db][:misses].where(z: z, x: x, y: y).first
-    miss ? miss[:status] : nil
+    miss&.[](:status)
   end
 
   def cleanup_misses_if_needed(route)
     max_records = route[:miss_max_records] || 10000
     return unless route[:db][:misses].count > max_records
-    
-    # Keep 80% of max_records, delete oldest
+
     keep_count = (max_records * 0.8).to_i
     route[:db][:misses].reverse(:ts).offset(keep_count).delete
   end
 
   def record_miss(route, z, x, y, reason, details, status, body)
     route[:db][:misses].where(z: z, x: x, y: y).delete
-    
+
     route[:db][:misses].insert(
       z: z, x: x, y: y, ts: Time.now.to_i,
       reason: reason, details: details, status: status,
       response_body: Sequel.blob(body || '')
     )
-    
+
     cleanup_misses_if_needed(route)
   end
 
   def fetch_http(route:, x:, y:, z:)
-    target_path = route[:target].gsub( '{z}', params[:z])
-                                .gsub( '{x}', params[:x])
-                                .gsub( '{y}', params[:y])
+    target_path = route[:target].gsub('{z}', z.to_s)
+                                .gsub('{x}', x.to_s)
+                                .gsub('{y}', y.to_s)
 
     headers = build_request_headers.merge((route[:headers]&.dig(:request) || {}).transform_keys(&:to_s))
     response = route[:client].get(target_path, nil, headers)
 
-    error_checks = {
-      'http_error' => -> { ![200, 304, 206].include?(response.status) && response.status >= 400 ? "HTTP #{response.status}" : nil },
-      'small_size' => -> { response.body.size < 100 ? "Response size: #{response.body.size} bytes" : nil },
-      'wrong_content_type' => -> { !response.headers['content-type']&.include?('image/') ? "Content-Type: #{response.headers['content-type']}" : nil }
-    }
-    
-    error_checks.each do |reason, check|
-      details = check.call
-      if details
-        LOGGER.info("fetch_http error: #{reason} - #{details} (status: #{response.status}, source: #{route[:target]}, tile: #{z}/#{x}/#{y})")
-        return { error: true, reason: reason, details: details, status: response.status, body: response.body }
-      end
-    end
+    return handle_response_error(response, route, z, x, y) if (error = validate_response(response))
 
     status response.status
     copy_headers_from_response(response.headers)
-
     { error: false, data: response.body }
   end
 
+  def validate_response(response)
+    return "HTTP #{response.status}" if ![200, 304, 206].include?(response.status) && response.status >= 400
+    return "Response size: #{response.body.size} bytes" if response.body.size < 100
+    return "Content-Type: #{response.headers['content-type']}" unless response.headers['content-type']&.include?('image/')
+    nil
+  end
+
+  def handle_response_error(response, route, z, x, y)
+    error = validate_response(response)
+    LOGGER.info("fetch_http error: #{error} (status: #{response.status}, source: #{route[:target]}, tile: #{z}/#{x}/#{y})")
+    { error: true, reason: 'fetch_error', details: error, status: response.status, body: response.body }
+  end
+
   def build_request_headers
-    headers = {}
     skip_headers = %w[host connection proxy-connection content-length if-none-match if-modified-since]
 
-    request.env.each do |key, value|
+    headers = request.env.filter_map do |key, value|
       next unless key.start_with?('HTTP_')
       header = key[5..-1].tr('_', '-').split('-').map(&:capitalize).join('-')
-      headers[header] = value unless skip_headers.include?(header.downcase)
-    end
+      [header, value] unless skip_headers.include?(header.downcase)
+    end.to_h
 
-    headers.merge!({ 'Cache-Control' => 'no-cache', 'Pragma' => 'no-cache' })
-    headers
+    headers.merge('Cache-Control' => 'no-cache', 'Pragma' => 'no-cache')
   end
 
   def build_response_headers(route, cache_status)
     response_headers = route[:headers]&.dig(:response) || {}
-    
-    case cache_status
-    when :hit
-      max_age = response_headers.dig(:'Cache-Control', :'max-age', :hit) || 86400
-      { "Cache-Control" => "public, max-age=#{max_age}", "X-Cache-Status" => "HIT" }
-    when :miss
-      max_age = response_headers.dig(:'Cache-Control', :'max-age', :miss) || 300
-      { "Cache-Control" => "public, max-age=#{max_age}", "X-Cache-Status" => "MISS" }
-    when :error, :else
-      { "Cache-Control" => "no-store", "X-Cache-Status" => "ERROR" }
-    end
+
+    cache_control, status = case cache_status
+                            when :hit
+                              max_age = response_headers.dig(:'Cache-Control', :'max-age', :hit) || 86400
+                              ["public, max-age=#{max_age}", "HIT"]
+                            when :miss
+                              max_age = response_headers.dig(:'Cache-Control', :'max-age', :miss) || 300
+                              ["public, max-age=#{max_age}", "MISS"]
+                            else
+                              ["no-store", "ERROR"]
+                            end
+
+    { "Cache-Control" => cache_control, "X-Cache-Status" => status }
   end
+
   def copy_headers_from_response(response_headers)
     skip_headers = %w[connection proxy-connection transfer-encoding content-length]
-
-    response_headers.each do |name, value|
-      headers[name] = value unless skip_headers.include?(name.downcase)
-    end
+    response_headers.each { |name, value| headers[name] = value unless skip_headers.include?(name.downcase) }
   end
 
   def generate_error_tile(status_code)
     error_tiles_path = "#{__dir__}/assets/error_tiles"
     tile_file = case status_code
-      when 401 then "#{error_tiles_path}/error_401.png"
-      when 403 then "#{error_tiles_path}/error_403.png"
-      when 404 then "#{error_tiles_path}/error_404.png"
-      when 429 then "#{error_tiles_path}/error_429.png"
-      when 500 then "#{error_tiles_path}/error_500.png"
-      else "#{error_tiles_path}/error_other.png"
+                when 401 then "#{error_tiles_path}/error_401.png"
+                when 403 then "#{error_tiles_path}/error_403.png"
+                when 404 then "#{error_tiles_path}/error_404.png"
+                when 429 then "#{error_tiles_path}/error_429.png"
+                when 500 then "#{error_tiles_path}/error_500.png"
+                else "#{error_tiles_path}/error_other.png"
                 end
     File.read(tile_file)
   rescue Errno::ENOENT
