@@ -30,26 +30,34 @@ World_Imagery:
     max_scan_zoom: 10
     strategy: "grid"
 
-# Topographic map service
-Topographic:
-  path: "/topo/:z/:x/:y"
-  target: "https://example-topo.com/maps/tiles/{z}/{y}/{x}.png"
+# Terrain DEM service (example)
+Terrain_DEM:
+  path: "/terrain/:z/:x/:y"
+  target: "https://example-terrain.com/dem/{z}/{x}/{y}.png"
   minzoom: 1
-  maxzoom: 18
-  miss_timeout: 300        # 5 minutes timeout for error tiles
-  miss_max_records: 10000  # max miss records before cleanup
+  maxzoom: 15
+  miss_timeout: 300
+  miss_max_records: 10000
   headers:
+    request:
+      User-Agent: "Mozilla/5.0"
     response:
       Cache-Control:
         max-age:
-          hit: 604800     # 7 days
-          miss: 3600      # 1 hour
+          hit: 86400
+          miss: 300
   query_params:
-  mbtiles_file: "topographic.mbtiles"
+  mbtiles_file: "terrain_dem.mbtiles"
   metadata:
     bounds: "-180,-85.0511,180,85.0511"
-    center: "0,0,2"
-    type: "baselayer"  # baselayer | overlay
+    center: "0,0,4"
+    type: "overlay"
+    encoding: "terrarium"
+  autoscan:
+    enabled: false
+    daily_limit: 10000
+    max_scan_zoom: 10
+    strategy: "grid"
 
 # Open source map service
 OSM:

@@ -46,28 +46,34 @@ module ViewHelpers
   end
   def generate_single_source_style(route, source_name)
     base_url = request.base_url
+    encoding = route.dig(:metadata, :encoding)
+    is_terrain = encoding == 'terrarium'
     
-    {
+    style = {
       version: 8,
       name: "#{source_name} Map",
       sources: {
         source_name => {
-          type: "raster",
+          type: is_terrain ? "raster-dem" : "raster",
           tiles: ["#{base_url}#{route[:path].gsub(':z', '{z}').gsub(':x', '{x}').gsub(':y', '{y}')}"],
           tileSize: route[:tile_size],
           minzoom: route[:minzoom] || 1,
           maxzoom: route[:maxzoom] || 20
         }
       },
-      layers: [
-        {
-          id: source_name.downcase,
-          type: "raster",
-          source: source_name,
-          layout: { visibility: "visible" },
-          paint: { "raster-resampling": "cubic" }
-        }
-      ]
-    }.to_json
+      layers: []
+    }
+    
+    if is_terrain
+      style[:sources][source_name][:encoding] = encoding
+      style[:sources][:base] = { type: "raster", tiles: ["https://mt1.google.com/vt/lyrs=p&x={x}&y={y}&z={z}"], tileSize: 256 }
+      style[:layers] << { id: "base-terrain", type: "raster", source: "base" }
+      style[:layers] << { id: "hillshade", type: "hillshade", source: source_name, paint: { "hillshade-shadow-color": "#473B24", "hillshade-highlight-color": "#FFFFFF", "hillshade-accent-color": "#CCAA88" } }
+      style[:terrain] = { source: source_name, exaggeration: 1.5 }
+    else
+      style[:layers] << { id: source_name.downcase, type: "raster", source: source_name, layout: { visibility: "visible" }, paint: { "raster-resampling": "cubic" } }
+    end
+    
+    style.to_json
   end
 end

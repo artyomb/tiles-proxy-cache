@@ -17,7 +17,8 @@ module MetadataManager
       'center' => route.dig(:metadata, :center) || '0,0,3',
       'minzoom' => (route[:minzoom] || 1).to_s,
       'maxzoom' => (route[:maxzoom] || 20).to_s,
-      'type' => route.dig(:metadata, :type) || 'baselayer'
+      'type' => route.dig(:metadata, :type) || 'baselayer',
+      'encoding' => route.dig(:metadata, :encoding) || ''
     }
 
     db[:metadata].multi_insert(metadata.map { |k, v| { name: k, value: v } })
@@ -68,6 +69,8 @@ module MetadataManager
       f.close
       output = `file "#{f.path}" 2>/dev/null`
       standard_sizes = [256, 512, 1024, 128, 64, 32]
+
+      return output.match(/height=(\d+).*width=(\d+)/) { |m| $1.to_i if $1.to_i == $2.to_i && standard_sizes.include?($1.to_i) } if format == 'tiff'
 
       standard_sizes.each do |size|
         if output.include?("#{size}x#{size}") || output.include?("#{size} x #{size}")
