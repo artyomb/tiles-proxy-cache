@@ -149,7 +149,8 @@ helpers do
 
   def fetch_with_lock(route, z, x, y, tms)
     route[:locks][key(z, x, y)].synchronize do
-      return blob if (blob = get_cached_tile(route, z, x, tms))
+      blob = get_cached_tile(route, z, x, tms)
+      return blob if blob
 
       result = fetch_http(route:, x: x, y: y, z: z)
 
