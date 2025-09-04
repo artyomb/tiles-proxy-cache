@@ -66,10 +66,12 @@ module ViewHelpers
     
     if is_terrain
       style[:sources][source_name][:encoding] = encoding
-      style[:sources][:base] = { type: "raster", tiles: ["https://mt2.google.com/vt/lyrs=s&x={x}&y={y}&z={z}"], tileSize: 256 }
+      style[:sources][:base] = { type: "raster", tiles: ["https://mt1.google.com/vt/lyrs=p&x={x}&y={y}&z={z}"], tileSize: 256, maxzoom: route[:maxzoom] }
       style[:layers] << { id: "base-terrain", type: "raster", source: "base" }
-      style[:layers] << { id: "hillshade", type: "hillshade", source: source_name, paint: { "hillshade-shadow-color": "#473B24", "hillshade-highlight-color": "#FFFFFF", "hillshade-accent-color": "#CCAA88" } }
-      style[:terrain] = { source: source_name, exaggeration: 1.5 }
+      style[:terrain] = {
+        source: source_name,
+        exaggeration: ["interpolate", ["linear"], ["zoom"], 0, 0.5, 6, 1.0, 10, 1.5, 14, 1.2, 18, 1.0]
+      }
     else
       style[:layers] << { id: source_name.downcase, type: "raster", source: source_name, layout: { visibility: "visible" }, paint: { "raster-resampling": "cubic" } }
     end

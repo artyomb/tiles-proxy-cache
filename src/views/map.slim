@@ -184,8 +184,17 @@ javascript:
       } catch (_) {}
 
       const onStyleReady = () => {
-        try { map.setProjection({ type: 'globe' }); } catch (_) {}
+        try { 
+          const hasTerrain = currentStyle?.terrain;
+          map.setProjection({ type: hasTerrain ? 'mercator' : 'globe' }); 
+        } catch (_) {}
         try { map.addControl(new maplibregl.GlobeControl(), 'top-right'); } catch (_) {}
+        
+        if (currentStyle?.terrain) {
+          setTimeout(() => {
+            try { map.triggerRepaint(); } catch (_) {}
+          }, 500);
+        }
       };
       
       map.once('idle', onStyleReady);
