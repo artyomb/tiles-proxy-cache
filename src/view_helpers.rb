@@ -47,7 +47,7 @@ module ViewHelpers
   def generate_single_source_style(route, source_name)
     base_url = request.base_url
     encoding = route.dig(:metadata, :encoding)
-    is_terrain = encoding == 'terrarium'
+    is_terrain = encoding == 'terrarium' || encoding == 'mapbox'
     
     style = {
       version: 8,
@@ -66,7 +66,8 @@ module ViewHelpers
     
     if is_terrain
       style[:sources][source_name][:encoding] = encoding
-      style[:sources][:base] = { type: "raster", tiles: ["https://mt1.google.com/vt/lyrs=p&x={x}&y={y}&z={z}"], tileSize: 256, maxzoom: route[:maxzoom] }
+      base_maxzoom = [route[:maxzoom], 15].max.clamp(15, 18)
+      style[:sources][:base] = { type: "raster", tiles: ["https://mt1.google.com/vt/lyrs=p&x={x}&y={y}&z={z}"], tileSize: 256, maxzoom: base_maxzoom }
       style[:layers] << { id: "base-terrain", type: "raster", source: "base" }
       style[:terrain] = {
         source: source_name,
