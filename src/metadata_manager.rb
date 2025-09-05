@@ -31,9 +31,12 @@ module MetadataManager
   end
 
   def detect_format_and_tile_size(route)
-    test_url = route[:target].gsub('{z}', '1').gsub('{x}', '0').gsub('{y}', '0')
+    test_zoom = [route[:minzoom] || 3, 5].max
+    test_url = route[:target].gsub('{z}', test_zoom.to_s).gsub('{x}', '0').gsub('{y}', '0')
+    uri = URI.parse(test_url)
 
-    response = Faraday.get(test_url) do |req|
+    client = route[:client]
+    response = client.get(uri.path + (uri.query ? "?#{uri.query}" : '')) do |req|
       req.headers.merge!(test_headers(route))
       req.options.timeout = 5
     end

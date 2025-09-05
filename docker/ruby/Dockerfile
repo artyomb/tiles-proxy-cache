@@ -1,6 +1,6 @@
 FROM ruby:3.4.4-slim-bookworm AS base
 
-RUN apt update && apt --fix-missing install -y build-essential pkg-config libpq-dev curl cmake libssl-dev file \
+RUN apt update && apt --fix-missing install -y build-essential pkg-config libpq-dev curl cmake libssl-dev libengine-gost-openssl file \
      && rm -rf /var/lib/apt/lists/*
 
 RUN echo 'gem: --no-document' >> ~/.gemrc
@@ -14,6 +14,9 @@ RUN bundle install --jobs $(nproc) --retry=3 && \
 
 COPY . /app
 
+# Copy GOST configuration
+COPY gost.conf /etc/ssl/openssl.cnf.d/gost.conf
+
 ENV RACK_ENV=production NODE_ENV=production
 RUN rake -T | grep 'rake build' && rake build || echo 'no build task'
 
@@ -22,7 +25,7 @@ FROM base AS tests
 RUN bundle exec rspec
 
 FROM ruby:3.4.4-slim-bookworm AS deploy
-RUN apt update && apt install --fix-missing -y bash curl libssl-dev bash curl wget libpq-dev file \
+RUN apt update && apt install --fix-missing -y bash curl libssl-dev libengine-gost-openssl bash curl wget libpq-dev file \
      && rm -rf /var/lib/apt/lists/*
 
 COPY --from=base /usr/local/bundle /usr/local/bundle
@@ -31,6 +34,9 @@ COPY --from=base /usr/local/bundle /usr/local/bundle
 # COPY --from=tests /app/src/spec/results /app/src/spec/results
 
 COPY . /app
+
+# Copy GOST configuration
+COPY gost.conf /etc/ssl/openssl.cnf.d/gost.conf
 
 ENV RUBY_YJIT_ENABLE=1 \
     SERVER_ENV=production \

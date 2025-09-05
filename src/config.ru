@@ -19,7 +19,7 @@ CONFIG_FOLDER = ENV['RACK_ENV'] == 'production' ? '/configs' : "#{__dir__}/confi
 
 ROUTES = Dir["#{CONFIG_FOLDER}/*.{yaml,yml}"].map { YAML.load_file(_1, symbolize_names: true) }.reduce({}, :merge)
 
-SAFE_KEYS = %i[path target minzoom maxzoom mbtiles_file miss_timeout miss_max_records metadata autoscan]
+SAFE_KEYS = %i[path target minzoom maxzoom mbtiles_file miss_timeout miss_max_records metadata autoscan gost_enabled]
 DB_SAFE_KEYS = SAFE_KEYS + %i[db]
 
 require_relative 'gost.rb' if ENV['GOST']
@@ -51,16 +51,36 @@ get "/map/style" do
   generate_single_source_style(route, source)
 end
 
-configure do
-  ROUTES.each do |_name, route|
-    uri = URI.parse route[:target].gsub(/[{}]/, '_')
+def create_http_client(uri, route)
+  base_config = {
+    url: "#{uri.scheme}://#{uri.host}",
+    ssl: { verify: false }
+  }
 
-    client = Faraday.new(url: "#{uri.scheme}://#{uri.host}", ssl: { verify: false }) do |f|
+  if route[:gost_enabled] && defined?(GOSTEngine)
+    GOSTEngine.with_gost do
+      Faraday.new(base_config) do |f|
+        f.request :retry, max: 2, interval: 0.2, backoff_factor: 2
+        f.options.timeout = 15
+        f.options.open_timeout = 10
+        f.adapter :net_http_persistent, pool_size: 10, idle_timeout: 60
+      end
+    end
+  else
+    Faraday.new(base_config) do |f|
       f.request :retry, max: 2, interval: 0.2, backoff_factor: 2
       f.options.timeout = 15
       f.options.open_timeout = 10
       f.adapter :net_http_persistent, pool_size: 10, idle_timeout: 60
     end
+  end
+end
+
+configure do
+  ROUTES.each do |_name, route|
+    uri = URI.parse route[:target].gsub(/[{}]/, '_')
+
+    client = create_http_client(uri, route)
     route[:client] = client
 
     DatabaseManager.setup_route_database(route, _name)
