@@ -14,9 +14,6 @@ RUN bundle install --jobs $(nproc) --retry=3 && \
 
 COPY . /app
 
-# Copy GOST configuration
-COPY src/gost.conf /etc/ssl/openssl.cnf.d/gost.conf
-
 ENV RACK_ENV=production NODE_ENV=production
 RUN rake -T | grep 'rake build' && rake build || echo 'no build task'
 
@@ -34,8 +31,6 @@ COPY --from=base /usr/local/bundle /usr/local/bundle
 # COPY --from=tests /app/src/spec/results /app/src/spec/results
 
 COPY . /app
-
-COPY src/gost.conf /etc/ssl/openssl.cnf.d/gost.conf
 
 ENV RUBY_YJIT_ENABLE=1 \
     SERVER_ENV=production \
