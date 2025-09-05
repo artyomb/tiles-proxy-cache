@@ -41,6 +41,6 @@ EXPOSE $PORT
 WORKDIR /app
 
 # --start_period=5s (Unknown flag: start_period)
-HEALTHCHECK --interval=15s --timeout=2s --retries=3 CMD curl --fail http://127.0.0.1:$PORT/healthcheck || exit 1
+#HEALTHCHECK --interval=15s --timeout=2s --retries=3 CMD curl --fail http://127.0.0.1:$PORT/healthcheck || exit 1
 CMD ls && bundle exec rackup -o 0.0.0.0 -p $PORT -s falcon
 # docker-compose build --progress plain
