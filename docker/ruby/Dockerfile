@@ -39,6 +39,6 @@ ENV RUBY_YJIT_ENABLE=1 \
 
 WORKDIR /app
 
-HEALTHCHECK --interval=15s --timeout=2s --start-period=5s --retries=3 CMD curl --fail http://127.0.0.1:$PORT/healthcheck || exit 1
-CMD ["/bin/sh", "-c", "bundle exec rackup -o 0.0.0.0 -p ${PORT} -s falcon"]
+HEALTHCHECK --interval=15s --timeout=2s --start-period=5s --retries=3 CMD curl --fail http://127.0.0.1:7000/healthcheck || exit 1
+CMD bundle exec rackup -o 0.0.0.0 -p 7000 -s falcon
 # docker-compose build --progress plain
