@@ -7,6 +7,6 @@ services:
         docker: ../docker
       dockerfile: ../docker/ruby/Dockerfile
     ports:
-      - "7000:7000"
+      - 7000:7000
     volumes:
       - ../src/configs:/configs
