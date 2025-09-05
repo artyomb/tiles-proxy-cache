@@ -14,7 +14,9 @@ RUN bundle install --jobs $(nproc) --retry=3 && \
 
 COPY . /app
 
-ENV RACK_ENV=production NODE_ENV=production
+RUN mkdir -p /etc/ssl/openssl.cnf.d && cp /app/gost.conf /etc/ssl/openssl.cnf.d/gost.conf
+
+ENV RACK_ENV=production NODE_ENV=production OPENSSL_CONF=/etc/ssl/openssl.cnf.d/gost.conf
 RUN rake -T | grep 'rake build' && rake build || echo 'no build task'
 
 # used in .gitlab-ci.yml Tests.
@@ -32,10 +34,13 @@ COPY --from=base /usr/local/bundle /usr/local/bundle
 
 COPY . /app
 
+RUN mkdir -p /etc/ssl/openssl.cnf.d && cp /app/gost.conf /etc/ssl/openssl.cnf.d/gost.conf
+
 ENV RUBY_YJIT_ENABLE=1 \
     SERVER_ENV=production \
     RACK_ENV=production \
-    PORT=7000
+    PORT=7000 \
+    OPENSSL_CONF=/etc/ssl/openssl.cnf.d/gost.conf
 
 WORKDIR /app
 
