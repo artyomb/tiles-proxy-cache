@@ -41,7 +41,10 @@ get "/db" do
 end
 
 get "/map" do
-  _, @route = validate_and_get_route(params[:source])
+  if params[:source]
+    source, _ = validate_and_get_route(params[:source])
+    @style_url = "#{request.base_url}/map/style?source=#{source}"
+  end
   slim(:map, layout: :map_layout)
 end
 
