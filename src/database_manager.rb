@@ -22,12 +22,23 @@ module DatabaseManager
     db
   end
 
+  def vacuum_all_databases(routes) = routes.each { |name, route| vacuum_database(route[:db], name) }
+
+  def vacuum_database(db, name = nil)
+    name_str = name ? " for #{name}" : ""
+    LOGGER.info("Starting VACUUM operation#{name_str}...")
+    start_time = Time.now
+    db.run "VACUUM"
+    duration = Time.now - start_time
+    LOGGER.info("VACUUM completed#{name_str} in #{duration.round(2)}s")
+  rescue => e
+    LOGGER.error("VACUUM failed#{name_str}: #{e.message}")
+  end
+
   private
 
   def configure_sqlite_pragmas(db)
     db.run "PRAGMA page_size=4096"      # or 8192/16384; set once
-    db.run "VACUUM"
-
     db.run "PRAGMA journal_mode=WAL"
     db.run "PRAGMA synchronous=NORMAL"
     db.run "PRAGMA locking_mode=NORMAL"

@@ -54,6 +54,15 @@ get "/map/style" do
   generate_single_source_style(route, source)
 end
 
+get "/admin/vacuum" do
+  content_type :json
+  DatabaseManager.vacuum_all_databases(ROUTES)
+  { status: "success", message: "VACUUM started for all databases" }.to_json
+rescue => e
+  status 500
+  { status: "error", message: e.message }.to_json
+end
+
 def create_http_client(uri, route)
   base_config = {
     url: "#{uri.scheme}://#{uri.host}",

@@ -6,10 +6,10 @@ html
       | * { margin: 0; padding: 0; box-sizing: border-box; }
       | body { font-family: 'JetBrains Mono', monospace; background: #2b2b2b; color: #a9b7c6; line-height: 1.4; font-size: 14px; }
       | .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
-      | .header { background: #3c3f41; border: 1px solid #555; padding: 20px; border-radius: 4px; margin-bottom: 20px; }
-      | .header-content { display: flex; justify-content: space-between; align-items: flex-start; }
-      | .header h1 { color: #ffc66d; font-size: 20px; margin-bottom: 8px; }
-      | .header p { color: #808080; font-size: 13px; }
+      | .header-blocks { display: flex; gap: 20px; margin-bottom: 20px; }
+      | .header-block { background: #3c3f41; border: 1px solid #555; padding: 20px; border-radius: 4px; flex: 1; }
+      | .header-block h1 { color: #ffc66d; font-size: 20px; margin-bottom: 8px; }
+      | .header-block p { color: #808080; font-size: 13px; }
       | .section { background: #3c3f41; border: 1px solid #555; padding: 16px; border-radius: 4px; margin-bottom: 16px; }
       | .section-title { color: #6a9955; font-weight: bold; margin-bottom: 12px; font-size: 16px; }
       | .btn { display: inline-block; padding: 6px 12px; background: #4b4d4f; color: #a9b7c6; text-decoration: none; border-radius: 3px; font-size: 12px; border: 1px solid #555; margin-right: 8px; }
@@ -50,14 +50,21 @@ html
       | .table-title { color: #6a9955; font-weight: bold; font-size: 16px; }
       | .btn-home { display: inline-flex; align-items: center; justify-content: center; width: 80px; height: 36px; border-radius: 18px; background: #6a9955; color: #fff; text-decoration: none; border: 1px solid #7bb366; font-size: 14px; transition: all 0.3s ease; gap: 4px; }
       | .btn-home:hover { background: #7bb366; border-color: #8cc477; transform: scale(1.05); }
+      | .btn-vacuum { display: inline-flex; align-items: center; justify-content: center; padding: 8px 16px; border-radius: 4px; background: #ffc66d; color: #2b2b2b; text-decoration: none; border: 1px solid #e6b85a; font-size: 12px; font-weight: bold; transition: all 0.3s ease; gap: 6px; cursor: pointer; }
+      | .btn-vacuum:hover { background: #ffd87d; border-color: #f0c050; transform: translateY(-1px); }
+      | .vacuum-title { color: #ffc66d; font-weight: bold; margin-bottom: 8px; font-size: 14px; }
+      | .vacuum-desc { color: #808080; font-size: 11px; margin-bottom: 12px; line-height: 1.4; }
 
   body
     .container
-      .header
-        .header-content
-          div
-            h1 Database Viewer: #{@source}
-            p Target: #{@route[:target]}
+      .header-blocks
+        .header-block
+          h1 Database Viewer: #{@source}
+          p Target: #{@route[:target]}
+        .header-block
+          .vacuum-title 🗄️ Database Maintenance
+          .vacuum-desc VACUUM optimizes database files by reclaiming unused space and defragmenting data. This operation runs in background for all databases and may take several minutes for large databases.
+          button.btn-vacuum onclick="runVacuum()" 🧹 Start VACUUM
 
       .section
         .section-title Navigation
@@ -120,3 +127,29 @@ html
                   a.pagination-btn href="/db?source=#{@source}&table=#{current_table}&page=#{page-1}" ← Previous
                 - if page < total_pages
                   a.pagination-btn href="/db?source=#{@source}&table=#{current_table}&page=#{page+1}" Next →
+
+javascript:
+  const runVacuum = async () => {
+    const button = document.querySelector('.btn-vacuum');
+    const originalText = button.innerHTML;
+    
+    const setButtonState = (text, disabled = false, opacity = '1') => {
+      button.innerHTML = text;
+      button.disabled = disabled;
+      button.style.opacity = opacity;
+    };
+    
+    const resetButton = () => setButtonState(originalText);
+    
+    setButtonState('Running...', true, '0.7');
+    
+    try {
+      const { status, message } = await fetch('/admin/vacuum').then(r => r.json());
+      setButtonState(status === 'success' ? 'Started' : 'Failed');
+      setTimeout(resetButton, status === 'success' ? 2000 : 3000);
+    } catch (error) {
+      setButtonState('Failed');
+      console.error('VACUUM failed:', error);
+      setTimeout(resetButton, 3000);
+    }
+  };
