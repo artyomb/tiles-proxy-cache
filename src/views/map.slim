@@ -1,77 +1,76 @@
 ruby:
-    style_name = params[:style]
-    external_style_url = params[:style_url]
-    style_url = external_style_url || (style_name ? "#{request.base_url}/styles/#{style_name}" : @style_url)
+  style_name = params[:style]
+  external_style_url = params[:style_url]
+  style_url = external_style_url || (style_name ? "#{request.base_url}/styles/#{style_name}" : @style_url)
 
 #loading-indicator
-    .loading-progress
-        .loading-text Loading map...
-        .progress-bar
-            .progress-fill
+  .loading-progress
+    .loading-text Loading map...
+    .progress-bar
+      .progress-fill
 
 - if style_name || external_style_url || @style_url
-    .layer-controls
-        .mode-switcher
-            button.mode-button.active id="mode-filters" onclick="switchMode(this, 'filters')" Filters
-            button.mode-button id="mode-layers" onclick="switchMode(this, 'layers')" Layers
-        button.control-button onclick="toggleHoverMode()" id="hover-mode-btn" Hover Mode
+  .layer-controls
+    .mode-switcher
+      button.mode-button.active id="mode-filters" onclick="switchMode(this, 'filters')" Filters
+      button.mode-button id="mode-layers" onclick="switchMode(this, 'layers')" Layers
+    button.control-button onclick="toggleHoverMode()" id="hover-mode-btn" Hover Mode
 
-        #filters-panel.control-panel.active
-            .control-panel-header
-                button.control-button onclick="toggleAllFilters()" Toggle All Filters
-                button.control-button onclick="toggleBasemap()" Toggle Basemap
-            .control-panel-content
-                #filter-buttons
+    #filters-panel.control-panel.active
+      .control-panel-header
+        button.control-button onclick="toggleAllFilters()" Toggle All Filters
+        button.control-button onclick="toggleBasemap()" Show/Hide Basemap
+      .control-panel-content
+        #filter-buttons
 
-        #layers-panel.control-panel
-            .control-panel-header
-                button.control-button onclick="toggleAllLayers()" Toggle All Layers
-                button.control-button onclick="toggleBasemap()" Toggle Basemap
-            .control-panel-content
-                #layer-buttons
+    #layers-panel.control-panel
+      .control-panel-header
+        button.control-button onclick="toggleAllLayers()" Toggle All Layers
+        button.control-button onclick="toggleBasemap()" Show/Hide Basemap
+      .control-panel-content
+        #layer-buttons
 
 #map-container
-    #map_base.map-layer
-    #map.map-layer data-style-url="#{style_url}"
+  #map.map-layer data-style-url="#{style_url}"
 
-    #performance-panel.performance-overlay
-        button.performance-toggle onclick="togglePerformancePanel()" ×
-        .performance-content
-            .metric-row
-                .metric
-                    span.metric-label FPS:
-                    span.metric-value#fps-value 0
-                .metric
-                    span.metric-label Frame:
-                    span.metric-value#frame-time-value 0ms
-                .metric
-                    span.metric-label Memory:
-                    span.metric-value#memory-usage-value 0MB
-                .metric
-                    span.metric-label Zoom:
-                    span.metric-value#zoom-level-value 0
-            .metric-row
-                .metric
-                    span.metric-label Tiles:
-                    span.metric-value#tiles-loaded-value 0
-                .metric
-                    span.metric-label Loading:
-                    span.metric-value#tiles-loading-value 0
-                .metric
-                    span.metric-label Layers:
-                    span.metric-value#layers-active-value 0
-            .metric-row#terrain-row style="display: none;"
-                .metric
-                    span.metric-label Terrain:
-                    span.metric-value#terrain-status-value -
+  #performance-panel.performance-overlay
+    button.performance-toggle onclick="togglePerformancePanel()" ×
+    .performance-content
+      .metric-row
+        .metric
+          span.metric-label FPS:
+          span.metric-value#fps-value 0
+        .metric
+          span.metric-label Frame:
+          span.metric-value#frame-time-value 0ms
+        .metric
+          span.metric-label Memory:
+          span.metric-value#memory-usage-value 0MB
+        .metric
+          span.metric-label Zoom:
+          span.metric-value#zoom-level-value 0
+      .metric-row
+        .metric
+          span.metric-label Tiles:
+          span.metric-value#tiles-loaded-value 0
+        .metric
+          span.metric-label Loading:
+          span.metric-value#tiles-loading-value 0
+        .metric
+          span.metric-label Layers:
+          span.metric-value#layers-active-value 0
+      .metric-row#terrain-row style="display: none;"
+        .metric
+          span.metric-label Terrain:
+          span.metric-value#terrain-status-value -
 
 javascript:
     const mapEl = document.getElementById('map');
     const style_url = mapEl?.dataset?.styleUrl || null;
-    let showBasemap = false, currentMode = 'filters';
+    let showBasemapFilters = true, showBasemapLayers = true, currentMode = 'filters';
     let hoverMode = 'click';
     let layerStates = {};
-    let map = null, map_base = null;
+    let map = null;
     let styleLoaded = false, resourcesLoaded = 0, totalResources = 0;
     let tilesLoaded = 0, tilesTotal = 0;
     let currentStyle = null;
@@ -120,6 +119,8 @@ javascript:
         document.getElementById('layers-panel').classList.toggle('active', mode === 'layers');
 
         mode === 'filters' ? filters?.setMode(mode) : applyLayerMode();
+        applyBasemapVisibility();
+        updateBasemapButton();
     };
 
 
@@ -129,6 +130,11 @@ javascript:
                 map.setLayoutProperty(layerId, 'visibility', layerStates[layerId] ? 'visible' : 'none');
             }
         });
+    };
+
+    const applyBasemapVisibility = () => {
+        const isVisible = currentMode === 'filters' ? showBasemapFilters : showBasemapLayers;
+        map?.getLayer?.('preview-basemap-layer') && map.setLayoutProperty('preview-basemap-layer', 'visibility', isVisible ? 'visible' : 'none');
     };
 
     const checkStyleResources = (style) => {
@@ -154,22 +160,41 @@ javascript:
     };
 
     const createMap = (container, style) => new maplibregl.Map({
-        container, style,
-        center: [35.15, 47.41], zoom: 2, attributionControl: false, validateStyle: false
+        container,
+        style,
+        center: [35.15, 47.41],
+        zoom: 2,
+        attributionControl: false,
+        validateStyle: false,
+        antialias: true
     });
 
-    const syncMaps = (map, map_base) => {
-        map.on('move', () => {
-            if (!map_base || map_base._isDestroyed) return;
+    const addBasemapToStyle = (originalStyle) => {
+        const modifiedStyle = JSON.parse(JSON.stringify(originalStyle));
 
-            const center = map.getCenter();
-            const zoom = map.getZoom();
-            const bearing = map.getBearing();
-            const pitch = map.getPitch();
-            map_base.jumpTo({center, zoom, bearing, pitch});
-            map_base.triggerRepaint();
-            map_base.resize();
+        modifiedStyle.sources = modifiedStyle.sources || {};
+        modifiedStyle.sources['preview-basemap'] = {
+            type: 'raster',
+            tiles: [
+                'https://a.tile.openstreetmap.org/{z}/{x}/{y}.png',
+                'https://b.tile.openstreetmap.org/{z}/{x}/{y}.png',
+                'https://c.tile.openstreetmap.org/{z}/{x}/{y}.png'
+            ],
+            tileSize: 256,
+            maxzoom: 19,
+            attribution: '© OpenStreetMap contributors'
+        };
+
+        modifiedStyle.layers = modifiedStyle.layers || [];
+        modifiedStyle.layers.unshift({
+            id: 'preview-basemap-layer',
+            type: 'raster',
+            source: 'preview-basemap',
+            layout: {visibility: 'visible'},
+            paint: {'raster-opacity': 0.8, 'raster-fade-duration': 300}
         });
+
+        return modifiedStyle;
     };
 
     const popupFeature = (features, e, popup) => {
@@ -182,155 +207,138 @@ javascript:
         });
 
         const tooltips = features.map((feat) =>
-                tt(feat.layer.metadata?.tooltip, feat) ||
-                tt(`<pre>"id": {id},\n"source": {source},\n"source-layer": {sourceLayer},\n"properties": {properties}</pre>`, feat)
+            tt(feat.layer.metadata?.tooltip, feat) ||
+            tt(`<pre>"id": {id},\n"source": {source},\n"source-layer": {sourceLayer},\n"properties": {properties}</pre>`, feat)
         );
         popup.setLngLat(e.lngLat).setHTML(tooltips.join('<br>')).addTo(map);
     };
 
     const initializeMap = () => {
         showLoading();
+        const emptyStyle = {version: 8, sources: {}, layers: []};
 
-        map_base = createMap('map_base', 'https://demotiles.maplibre.org/style.json');
-        map_base.once('idle', () => {
-            try {
-                map_base.setProjection({type: 'globe'});
-            } catch (_) {
-            }
-        });
+        style_url
+            ? fetch(style_url)
+                .then(response => response.json())
+                .then(originalStyle => createMapWithStyle(addBasemapToStyle(originalStyle)))
+                .catch(error => {
+                    console.error('Style loading error:', error);
+                    createMapWithStyle(addBasemapToStyle(emptyStyle));
+                })
+            : createMapWithStyle(addBasemapToStyle(emptyStyle));
+    };
 
-        map = createMap('map', style_url || 'https://demotiles.maplibre.org/style.json');
-        document.getElementById('map_base').style.display = 'none';
+    const createMapWithStyle = (style) => {
+        map = createMap('map', style);
+        setupMapEvents();
+    };
+
+    const setupMapEvents = () => {
         map.addControl(new maplibregl.NavigationControl());
-        map.on('error', (e) => {
-            console.error('[MapLibre ERROR]', e?.error || e);
-        });
+        map.on('error', (e) => console.error('[MapLibre ERROR]', e?.error || e));
 
-        if (style_url) {
-            syncMaps(map, map_base);
-            map.on('projectiontransition', (e) => {
-                const applyProjection = () => {
-                    try {
-                        map_base.setProjection({type: e.newProjection});
-                    } catch (_) {
-                    }
-                    map_base.triggerRepaint();
-                    map_base.resize();
-                };
-                map_base.isStyleLoaded && map_base.isStyleLoaded() ? applyProjection() : map_base.once('idle', applyProjection);
-            });
-        }
-
-        map.on('load', async () => {
-            try {
-                currentStyle = map.getStyle();
-                if (currentStyle) {
-                    checkStyleResources(currentStyle);
-                    filters = new Filters({
-                        map: map,
-                        container: '#filter-buttons',
-                        element_template: (title) => `<div class="element">${title}</div>`,
-                        group_template: (title) => `<div class="group">${title}</div>`
-                    });
-                    filters.init();
-                    createLayerButtons();
-                }
-            } catch (_) {
-            }
-
-            const onStyleReady = () => {
-                try {
-                    const hasTerrain = currentStyle?.terrain;
-                    const projectionType = hasTerrain ? 'mercator' : 'globe';
-                    map.setProjection({type: projectionType});
-                } catch (_) {
-                }
-                try {
-                    map.addControl(new maplibregl.GlobeControl(), 'top-right');
-                } catch (_) {
-                }
-
-                updateTerrainIndicator();
-
-                if (currentStyle?.terrain) {
-                    setTimeout(() => {
-                        try {
-                            map.triggerRepaint();
-                        } catch (_) {
-                        }
-                    }, 500);
-                }
-            };
-
+        map.on('style.load', () => {
+            currentStyle = map.getStyle();
+            currentStyle && initializeFiltersAndLayers();
             map.once('idle', onStyleReady);
-
-            const popup = new maplibregl.Popup({closeButton: false, closeOnClick: false});
-
-            map.on('click', function (e) {
-                const features = this.queryRenderedFeatures(e.point);
-                if (features.length > 0) {
-                    hoverMode === 'click' && popupFeature(features, e, popup);
-                    console.log('Clicked feature:', features[0]);
-                }
-            });
-
-            let timeout, point;
-            map.on('mousemove', (e) => {
-                if (hoverMode !== 'hover') {
-                    map.getCanvas().style.cursor = '';
-                    popup.remove();
-                    return;
-                }
-
-                clearTimeout(timeout);
-                const features = map.queryRenderedFeatures(e.point);
-                const hasFeatures = features.length > 0;
-
-                map.getCanvas().style.cursor = hasFeatures ? 'crosshair' : '';
-                hasFeatures ? timeout = setTimeout(() => popupFeature(features, e, popup), 100) : popup.remove();
-
-                point && !point.equals(e.point) && popup.remove();
-                point = e.point.clone();
-            });
-
-            map.on('sourcedata', (e) => {
-                if (e.sourceId && e.isSourceLoaded) {
-                    tilesLoaded++;
-                    tilesTotal === 0 && (tilesTotal = Object.keys(map.getStyle().sources).length);
-                    updateLoadingProgress();
-                }
-            });
-
-            map.on('idle', () => {
-                const allResourcesLoaded = totalResources === 0 || styleLoaded;
-                const allTilesLoaded = tilesTotal === 0 || tilesLoaded >= tilesTotal;
-
-                if (allResourcesLoaded && allTilesLoaded) {
-                    hideLoading();
-                }
-            });
-
-            setTimeout(() => hideLoading(), 10000);
-
-            startPerformanceMonitoring();
-            requestAnimationFrame(countFrame);
-            updateHoverModeButton();
-            updateBasemapButton();
+            setupMapInteractions();
+            setupPerformanceMonitoring();
         });
     };
 
+    const initializeFiltersAndLayers = () => {
+        try {
+            checkStyleResources(currentStyle);
+            filters = new Filters({
+                map,
+                container: '#filter-buttons',
+                element_template: (title) => `<div class="element">${title}</div>`,
+                group_template: (title) => `<div class="group">${title}</div>`
+            });
+            filters.init();
+            createLayerButtons();
+        } catch (e) {
+            console.warn('Filter initialization failed:', e);
+        }
+    };
+
+    const onStyleReady = () => {
+        const hasTerrain = currentStyle?.terrain;
+        const projectionType = hasTerrain ? 'mercator' : 'globe';
+
+        try {
+            map.setProjection({type: projectionType});
+        } catch (e) {
+            console.warn('Projection setting failed:', e);
+        }
+
+        try {
+            map.addControl(new maplibregl.GlobeControl(), 'top-right');
+        } catch (e) {
+            console.warn('GlobeControl failed:', e);
+        }
+
+        updateTerrainIndicator();
+    };
+
+    const setupMapInteractions = () => {
+        const popup = new maplibregl.Popup({closeButton: false, closeOnClick: false});
+
+        map.on('click', function (e) {
+            const features = this.queryRenderedFeatures(e.point);
+            features.length > 0 && hoverMode === 'click' && popupFeature(features, e, popup);
+            features.length > 0 && console.log('Clicked feature:', features[0]);
+        });
+
+        let timeout, point;
+        map.on('mousemove', (e) => {
+            if (hoverMode !== 'hover') {
+                map.getCanvas().style.cursor = '';
+                popup.remove();
+                return;
+            }
+
+            clearTimeout(timeout);
+            const features = map.queryRenderedFeatures(e.point);
+            const hasFeatures = features.length > 0;
+
+            map.getCanvas().style.cursor = hasFeatures ? 'crosshair' : '';
+            hasFeatures ? timeout = setTimeout(() => popupFeature(features, e, popup), 100) : popup.remove();
+            point?.equals(e.point) || popup.remove();
+            point = e.point.clone();
+        });
+
+        map.on('sourcedata', (e) => {
+            e.sourceId && e.isSourceLoaded && (tilesLoaded++,
+            tilesTotal === 0 && (tilesTotal = Object.keys(map.getStyle().sources).length),
+                updateLoadingProgress());
+        });
+
+        map.on('idle', () => {
+            const allLoaded = (totalResources === 0 || styleLoaded) && (tilesTotal === 0 || tilesLoaded >= tilesTotal);
+            allLoaded && hideLoading();
+        });
+
+        setTimeout(hideLoading, 10000);
+    };
+
+    const setupPerformanceMonitoring = () => {
+        [startPerformanceMonitoring, () => requestAnimationFrame(countFrame),
+            updateHoverModeButton, updateBasemapButton].forEach(fn => fn());
+    };
+
     const toggleBasemap = () => {
-        showBasemap = !showBasemap;
-        document.getElementById('map_base').style.display = showBasemap ? 'block' : 'none';
+        currentMode === 'filters' ? showBasemapFilters = !showBasemapFilters : showBasemapLayers = !showBasemapLayers;
+        applyBasemapVisibility();
         updateBasemapButton();
     };
 
     const updateBasemapButton = () => {
-        const btn = document.querySelector('button[onclick="toggleBasemap()"]');
-        if (!btn) return;
-
-        btn.textContent = showBasemap ? 'Hide Basemap' : 'Show Basemap';
-        btn.className = `control-button ${showBasemap ? 'active' : 'inactive'}`;
+        const isVisible = currentMode === 'filters' ? showBasemapFilters : showBasemapLayers;
+        document.querySelectorAll('button[onclick="toggleBasemap()"]').forEach(btn => {
+            btn.textContent = isVisible ? 'Hide Basemap' : 'Show Basemap';
+            btn.className = `control-button ${isVisible ? 'active' : 'inactive'}`;
+        });
     };
 
     const updateTerrainIndicator = () => {
@@ -375,7 +383,12 @@ javascript:
             }
         });
 
+        if (map.getLayer('preview-basemap-layer')) {
+            showBasemapLayers = newState;
+        }
+
         updateLayerButtons();
+        updateBasemapButton();
     };
 
     const toggleLayer = (layerId) => {
@@ -385,6 +398,12 @@ javascript:
         if (map.getLayer(layerId)) {
             map.setLayoutProperty(layerId, 'visibility', layerStates[layerId] ? 'visible' : 'none');
         }
+
+        if (layerId === 'preview-basemap-layer') {
+            showBasemapLayers = layerStates[layerId];
+            updateBasemapButton();
+        }
+
         updateLayerButtons();
     };
 
