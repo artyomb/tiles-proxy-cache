@@ -31,24 +31,51 @@ module MetadataManager
   end
 
   def detect_format_and_tile_size(route)
-    test_zoom = [route[:minzoom] || 3, 5].max
-    test_url = route[:target].gsub('{z}', test_zoom.to_s).gsub('{x}', '0').gsub('{y}', '0')
+    min_zoom = route[:minzoom] || 1
+    max_zoom = route[:maxzoom] || 20
+    range = max_zoom - min_zoom
+    test_zooms = range <= 3 ? (min_zoom..max_zoom).to_a : 
+                 [min_zoom, min_zoom + range / 3, min_zoom + range * 2 / 3, max_zoom].map(&:round).uniq
+    
+    hot_spots = [[37.6176, 55.7558], [-0.1276, 51.5074], [-74.0060, 40.7128], [0, 0]]
+    
+    test_zooms.each do |zoom|
+      hot_spots.each do |lon, lat|
+        x = ((lon + 180) / 360 * (1 << zoom)).floor
+        y = ((1 - Math.log(Math.tan(lat * Math::PI / 180) + 1 / Math.cos(lat * Math::PI / 180)) / Math::PI) / 2 * (1 << zoom)).floor
+        
+        next if x < 0 || y < 0 || x >= (1 << zoom) || y >= (1 << zoom)
+        
+        result = try_fetch_tile(route, zoom, x, y)
+        return result if result
+      end
+    end
+    
+    LOGGER.warn("Failed to detect format and tile size, using fallback")
+    { format: 'png', tile_size: 256 }
+  end
+
+  def try_fetch_tile(route, zoom, x, y)
+    test_url = route[:target].gsub('{z}', zoom.to_s).gsub('{x}', x.to_s).gsub('{y}', y.to_s)
     uri = URI.parse(test_url)
 
-    client = route[:client]
-    response = client.get(uri.path + (uri.query ? "?#{uri.query}" : '')) do |req|
+    response = route[:client].get(uri.path + (uri.query ? "?#{uri.query}" : '')) do |req|
       req.headers.merge!(test_headers(route))
       req.options.timeout = 5
     end
 
+    return nil unless response.success? && response.body&.size.to_i > 100
+    return nil unless response.headers['content-type']&.include?('image/')
+
     format = detect_format_from_content_type(response.headers['content-type'])
     tile_size = detect_tile_size_from_data(response.body, format)
 
+    return nil unless format && tile_size
+
     { format: format, tile_size: tile_size }
   rescue => e
-    LOGGER.error("Failed to detect format and tile size: #{e}")
-    LOGGER.warn("Using fallback values: format=png, tile_size=256")
-    { format: 'png', tile_size: 256 }
+    LOGGER.debug("Failed to test zoom=#{zoom}, x=#{x}, y=#{y}: #{e.message}")
+    nil
   end
 
   def detect_format_from_content_type(content_type)
