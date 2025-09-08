@@ -48,7 +48,7 @@
               .info-label Path
               .info-value = route[:path]
           .coverage-chart
-            svg id="chart-#{name}" data-coverage="#{d3_coverage_data(route).to_json}"
+            svg id="chart-#{name}" data-coverage="#{@route_stats[name][:coverage_data].to_json}"
           .info-footer
             .info-item
               .info-label Zoom Range
@@ -58,16 +58,16 @@
               .info-value = "#{route[:tile_size]}px"
             .info-item
               .info-label Cached Tiles
-              .info-value = route[:db][:tiles].count
+              .info-value = @route_stats[name][:tiles_count]
             .info-item
               .info-label Cache Misses
-              .info-value = route[:db][:misses].count
+              .info-value = @route_stats[name][:misses_count]
             .info-item
               .info-label Cache Size
-              .info-value = "#{(get_tiles_size(route) / 1024.0 / 1024.0).round(2)} MB"
+              .info-value = "#{(@route_stats[name][:cache_size] / 1024.0 / 1024.0).round(2)} MB"
             .info-item
               .info-label Coverage
-              .info-value = "#{total_coverage_percentage(route)}%"
+              .info-value = "#{@route_stats[name][:coverage_percentage]}%"
         javascript:
           document.addEventListener('DOMContentLoaded', function() {
             const chartElement = document.getElementById('chart-#{name}');

@@ -5,7 +5,6 @@ require 'faraday/retry'
 require 'faraday/net_http_persistent'
 require 'stack-service-base'
 require 'yaml'
-require 'autoforme'
 require_relative 'view_helpers'
 require_relative 'metadata_manager'
 require_relative 'background_tile_loader'
@@ -26,11 +25,28 @@ require_relative 'gost.rb' if ENV['GOST']
 
 get "/" do
   @total_sources = ROUTES.length
-  @total_tiles = ROUTES.values.sum { |route| route[:db][:tiles].count }
-  @total_misses = ROUTES.values.sum { |route| route[:db][:misses].count }
-  @total_cache_size = ROUTES.values.sum { |route| get_tiles_size(route) }
   @uptime = Time.now - START_TIME
   @original_config = ROUTES.transform_values { |route| route.slice(*SAFE_KEYS) }
+  @route_stats = ROUTES.transform_values do |route|
+    tiles_count = route[:db][:tiles].count
+    misses_count = route[:db][:misses].count
+    cache_size = get_tiles_size(route)
+    coverage_data = d3_coverage_data(route)
+    coverage_percentage = total_coverage_percentage(route)
+    
+    {
+      tiles_count: tiles_count,
+      misses_count: misses_count,
+      cache_size: cache_size,
+      coverage_data: coverage_data,
+      coverage_percentage: coverage_percentage
+    }
+  end
+
+  @total_tiles = @route_stats.values.sum { |stats| stats[:tiles_count] }
+  @total_misses = @route_stats.values.sum { |stats| stats[:misses_count] }
+  @total_cache_size = @route_stats.values.sum { |stats| stats[:cache_size] }
+  
   slim :index
 end
 
