@@ -132,6 +132,7 @@ class BackgroundTileLoader
 
   def fetch_tile(x, y, z)
     target_url = @route[:target].gsub('{z}', z.to_s).gsub('{x}', x.to_s).gsub('{y}', y.to_s)
+    target_url += "?#{URI.encode_www_form(@route[:query_params])}" if @route[:query_params]
     headers = get_headers
 
     return false if tile_exists?(x, y, z)

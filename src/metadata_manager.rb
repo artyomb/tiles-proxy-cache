@@ -57,6 +57,7 @@ module MetadataManager
 
   def try_fetch_tile(route, zoom, x, y)
     test_url = route[:target].gsub('{z}', zoom.to_s).gsub('{x}', x.to_s).gsub('{y}', y.to_s)
+    test_url += "?#{URI.encode_www_form(route[:query_params])}" if route[:query_params]
     uri = URI.parse(test_url)
 
     response = route[:client].get(uri.path + (uri.query ? "?#{uri.query}" : '')) do |req|

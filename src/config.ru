@@ -233,6 +233,8 @@ helpers do
     target_path = route[:target].gsub('{z}', z.to_s)
                                 .gsub('{x}', x.to_s)
                                 .gsub('{y}', y.to_s)
+    
+    target_path += "?#{URI.encode_www_form(route[:query_params])}" if route[:query_params]
 
     headers = build_request_headers.merge((route[:headers]&.dig(:request) || {}).transform_keys(&:to_s))
     response = route[:client].get(target_path, nil, headers)
