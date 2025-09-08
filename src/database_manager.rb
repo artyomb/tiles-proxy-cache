@@ -58,6 +58,11 @@ module DatabaseManager
       File    :tile_data,   null:false
       unique [:zoom_level,:tile_column,:tile_row], name: :tile_index
     }
-    db.create_table?(:misses){ Integer :z; Integer :x; Integer :y; Integer :ts; String :reason; String :details; Integer :status; File :response_body }
+    db.create_table?(:misses){ 
+      Integer :z; Integer :x; Integer :y; Integer :ts
+      String :reason; String :details; Integer :status; File :response_body
+      index [:z, :x, :y], name: :idx_misses_xyz
+      index :ts, name: :idx_misses_ts
+    }
   end
 end
