@@ -49,10 +49,15 @@ class BackgroundTileLoader
   def start_wal_checkpoint_thread
     Thread.new do
       loop do
-        sleep 30
-        @route[:db].run "PRAGMA wal_checkpoint(PASSIVE)"
-      rescue => e
-        LOGGER.warn("WAL checkpoint error: #{e}")
+        sleep 15
+        begin
+          result = @route[:db].run "PRAGMA wal_checkpoint(PASSIVE)"
+          if result[0] == 1
+            @route[:db].run "PRAGMA wal_checkpoint(RESTART)"
+          end
+        rescue => e
+          LOGGER.warn("WAL checkpoint error: #{e}")
+        end
       end
     end
   end

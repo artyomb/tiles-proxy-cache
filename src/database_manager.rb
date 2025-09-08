@@ -46,7 +46,7 @@ module DatabaseManager
     db.run "PRAGMA temp_store=MEMORY"
     db.run "PRAGMA cache_size=-131072"     # ~128 MiB
     db.run "PRAGMA mmap_size=536870912"    # 512 MiB
-    db.run "PRAGMA wal_autocheckpoint=0"
+    db.run "PRAGMA wal_autocheckpoint=1000"
   end
 
   def create_tables(db)
