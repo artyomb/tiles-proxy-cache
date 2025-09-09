@@ -428,11 +428,11 @@ javascript:
             const button = document.createElement('button');
             const buttonId = toDomId('layer', layer.id);
             button.id = buttonId;
-            button.className = 'control-button active';
+            layerStates[layer.id] = map.getLayoutProperty(layer.id, 'visibility') !== 'none';
+            button.className = `control-button ${layerStates[layer.id] ? 'active' : 'inactive'}`;
             button.textContent = layer.id;
             button.onclick = () => toggleLayer(layer.id);
             layerButtonsContainer.appendChild(button);
-            layerStates[layer.id] = true;
             layerIdToDomId[layer.id] = buttonId;
         });
     };
