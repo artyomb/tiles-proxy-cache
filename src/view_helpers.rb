@@ -3,7 +3,19 @@ module ViewHelpers
     route[:db][:tiles].sum(Sequel.function(:length, :tile_data)) || 0
   end
 
-  def tiles_per_zoom(z) = 4 ** z
+  def tiles_per_zoom(z, route = nil)
+    return 4 ** z unless route
+    
+    bounds_str = route.dig(:metadata, :bounds) || "-180,-85.0511,180,85.0511"
+    west, south, east, north = bounds_str.split(',').map(&:to_f)
+    
+    min_x = [(west + 180) / 360 * (1 << z), 0].max.floor
+    min_y = [(1 - Math.log(Math.tan(north * Math::PI / 180) + 1 / Math.cos(north * Math::PI / 180)) / Math::PI) / 2 * (1 << z), 0].max.floor
+    max_x = [(east + 180) / 360 * (1 << z), (1 << z) - 1].min.floor
+    max_y = [(1 - Math.log(Math.tan(south * Math::PI / 180) + 1 / Math.cos(south * Math::PI / 180)) / Math::PI) / 2 * (1 << z), (1 << z) - 1].min.floor
+    
+    (max_x - min_x + 1) * (max_y - min_y + 1)
+  end
 
   def zoom_coverage_stats(route)
     min_zoom = route[:minzoom] || 1
@@ -16,7 +28,7 @@ module ViewHelpers
       .to_hash(:zoom_level, :count)
     
     (min_zoom..max_zoom).map do |z|
-      possible = tiles_per_zoom(z)
+      possible = tiles_per_zoom(z, route)
       cached = cached_counts[z] || 0
       percentage = ((cached.to_f / possible) * 100).round(1)
       
@@ -28,7 +40,7 @@ module ViewHelpers
     min_zoom = route[:minzoom] || 1
     max_zoom = route[:maxzoom] || 20
     
-    total_possible = (min_zoom..max_zoom).sum { |z| tiles_per_zoom(z) }
+    total_possible = (min_zoom..max_zoom).sum { |z| tiles_per_zoom(z, route) }
     total_cached = route[:db][:tiles].where(zoom_level: min_zoom..max_zoom).count
     
     sprintf('%.8f', (total_cached.to_f / total_possible) * 100).sub(/\.?0+$/, '')
