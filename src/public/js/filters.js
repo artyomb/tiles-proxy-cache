@@ -272,7 +272,7 @@ class Filters {
 
             const groupButton = document.createElement('button');
             groupButton.id = `filter-${filterId}`;
-            groupButton.className = 'control-button filter-group-button';
+            groupButton.className = 'control-button active filter-group-button';
             groupButton.textContent = locale;
             groupButton.onclick = () => this.toggleFilterGroup(filterId);
             groupContainer.appendChild(groupButton);
@@ -285,18 +285,17 @@ class Filters {
                 filterConfig.forEach(item => {
                     const subButton = document.createElement('button');
                     subButton.id = `filter-sub-${filterId}-${item.id}`;
-                    subButton.className = 'control-button filter-sub-button';
+                    subButton.className = 'control-button active filter-sub-button';
                     const subLocale = this.getLocalizedFilterName(this.currentStyle.metadata.locale, item.id);
                     subButton.textContent = subLocale || item.id;
                     subButton.onclick = () => this.toggleSubFilter(filterId, item.id);
                     subButtonsContainer.appendChild(subButton);
 
                     const subFilterKey = `${filterId}_${item.id}`;
-                    const layerVisible = this.currentStyle.layers.find(layer => 
-                        layer.metadata?.filter_id === item.id
-                    );
-                    const isLayerVisible = layerVisible ? 
-                        this.map.getLayoutProperty(layerVisible.id, 'visibility') !== 'none' : false;
+                    const isLayerVisible = item.group_id ? true :
+                        this.currentStyle.layers
+                            .filter(layer => layer.metadata?.filter_id === item.id)
+                            .some(layer => this.map.getLayoutProperty(layer.id, 'visibility') !== 'none');
                     this.filterStates[subFilterKey] = savedStates[subFilterKey] ?? isLayerVisible;
                 });
 
@@ -305,12 +304,11 @@ class Filters {
 
             filterButtonsContainer.appendChild(groupContainer);
 
-            const filterLayers = this.currentStyle.layers.filter(layer => 
-                layer.metadata?.filter_id === filterId
-            );
-            const anyLayerVisible = filterLayers.some(layer => 
-                this.map.getLayoutProperty(layer.id, 'visibility') !== 'none'
-            );
+            const anyLayerVisible = filterConfig.length > 1 ?
+                filterConfig.some(item => this.filterStates[`${filterId}_${item.id}`] === true) :
+                this.currentStyle.layers
+                    .filter(layer => layer.metadata?.filter_id === filterId)
+                    .some(layer => this.map.getLayoutProperty(layer.id, 'visibility') !== 'none');
             this.filterStates[filterId] = savedStates[filterId] ?? anyLayerVisible;
         });
 
