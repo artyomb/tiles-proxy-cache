@@ -77,10 +77,19 @@ module ViewHelpers
       layers: []
     }
 
-    style[:metadata] = {
-      filters: { source_name.downcase => [{ id: source_name.downcase }] },
-      locale: { "en" => { source_name.downcase => source_name.gsub('_', ' ') } }
-    }
+    if is_terrain
+      style[:metadata] = {
+        filters: {source_name.downcase => [
+            { id: source_name.downcase },
+            { id: "hillshade_layer" }]},
+        locale: {"en" => {source_name.downcase => source_name.gsub('_', ' '),"hillshade_layer" => "Hillshade"}}
+      }
+    else
+      style[:metadata] = {
+        filters: { source_name.downcase => [{ id: source_name.downcase }] },
+        locale: { "en" => { source_name.downcase => source_name.gsub('_', ' ') } }
+      }
+    end
 
     if is_terrain
       style[:sources][source_name][:encoding] = encoding
@@ -91,6 +100,18 @@ module ViewHelpers
         type: "raster",
         source: "base",
         metadata: { filter_id: source_name.downcase }
+      }
+      style[:layers] << { 
+        id: "hillshade", 
+        type: "hillshade", 
+        source: source_name, 
+        layout: { visibility: "none" },
+        paint: { 
+          "hillshade-shadow-color": "#473B24", 
+          "hillshade-highlight-color": "#FFFFFF", 
+          "hillshade-accent-color": "#CCAA88" 
+        },
+        metadata: { filter_id: "hillshade_layer" }
       }
       style[:terrain] = {
         source: source_name,

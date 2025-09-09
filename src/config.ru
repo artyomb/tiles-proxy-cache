@@ -153,6 +153,7 @@ ROUTES.each do |_name, route|
     blob ? serve_tile(route, blob, :miss) : serve_error_tile(route, 404)
   end
 
+  # TODO integrate with view_helpers.rb or delete this
   get route[:path].gsub(/\/:[zxy]/, '') do
     host = request.env['rack.url_scheme'] + '://' + request.env['HTTP_HOST']
     path = route[:path].gsub(':z', '{z}').gsub(':x', '{x}').gsub(':y', '{y}')
