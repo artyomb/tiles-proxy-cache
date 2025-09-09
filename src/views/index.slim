@@ -5,13 +5,13 @@
       .stat-number = @total_sources
       .stat-desc Available sources
     .stat-box
-      .stat-number = @total_tiles
+      .stat-number.loading id="total-tiles" ⏳
       .stat-desc Total cached tiles
     .stat-box
-      .stat-number = @total_misses
+      .stat-number.loading id="total-misses" ⏳
       .stat-desc Cache misses
     .stat-box
-      .stat-number = "#{(@total_cache_size / 1024.0 / 1024.0).round(2)} MB"
+      .stat-number.loading id="total-cache-size" ⏳
       .stat-desc Cache size
     .stat-box
       .stat-number = "#{(@uptime / 3600).to_i}h #{((@uptime % 3600) / 60).to_i}m"
@@ -48,7 +48,7 @@
               .info-label Path
               .info-value = route[:path]
           .coverage-chart
-            svg id="chart-#{name}" data-coverage="#{@route_stats[name][:coverage_data].to_json}"
+            svg id="chart-#{name}" data-source="#{name}"
           .info-footer
             .info-item
               .info-label Zoom Range
@@ -58,24 +58,56 @@
               .info-value = "#{route[:tile_size]}px"
             .info-item
               .info-label Cached Tiles
-              .info-value = @route_stats[name][:tiles_count]
+              .info-value.loading id="tiles-#{name}" ⏳
             .info-item
               .info-label Cache Misses
-              .info-value = @route_stats[name][:misses_count]
+              .info-value.loading id="misses-#{name}" ⏳
             .info-item
               .info-label Cache Size
-              .info-value = "#{(@route_stats[name][:cache_size] / 1024.0 / 1024.0).round(2)} MB"
+              .info-value.loading id="size-#{name}" ⏳
             .info-item
               .info-label Coverage
-              .info-value = "#{@route_stats[name][:coverage_percentage]}%"
-        javascript:
-          document.addEventListener('DOMContentLoaded', function() {
-            const chartElement = document.getElementById('chart-#{name}');
-            if (!chartElement) return;
-            
-            const rawData = chartElement.getAttribute('data-coverage');
-            if (!rawData) return;
-            
-            const data = JSON.parse(rawData);
-            createCoverageChart('chart-#{name}', data);
-          });
+              .info-value.loading id="coverage-#{name}" ⏳
+
+javascript:
+  document.addEventListener('DOMContentLoaded', function() {
+    fetch('/api/stats')
+      .then(response => response.json())
+      .then(data => {
+        document.getElementById('total-tiles').textContent = data.totals.tiles;
+        document.getElementById('total-misses').textContent = data.totals.misses;
+        document.getElementById('total-cache-size').textContent = (data.totals.cache_size / 1024.0 / 1024.0).toFixed(2) + ' MB';
+        
+        document.getElementById('total-tiles').classList.remove('loading');
+        document.getElementById('total-misses').classList.remove('loading');
+        document.getElementById('total-cache-size').classList.remove('loading');
+        
+        Object.keys(data.route_stats).forEach(sourceName => {
+          const stats = data.route_stats[sourceName];
+          
+          document.getElementById(`tiles-${sourceName}`).textContent = stats.tiles_count;
+          document.getElementById(`misses-${sourceName}`).textContent = stats.misses_count;
+          document.getElementById(`size-${sourceName}`).textContent = (stats.cache_size / 1024.0 / 1024.0).toFixed(2) + ' MB';
+          document.getElementById(`coverage-${sourceName}`).textContent = stats.coverage_percentage + '%';
+          
+          document.getElementById(`tiles-${sourceName}`).classList.remove('loading');
+          document.getElementById(`misses-${sourceName}`).classList.remove('loading');
+          document.getElementById(`size-${sourceName}`).classList.remove('loading');
+          document.getElementById(`coverage-${sourceName}`).classList.remove('loading');
+          
+          const chartElement = document.getElementById(`chart-${sourceName}`);
+          if (chartElement && stats.coverage_data) {
+            createCoverageChart(`chart-${sourceName}`, stats.coverage_data);
+          }
+        });
+      })
+      .catch(error => {
+        console.error('Error loading stats:', error);
+        
+        document.querySelectorAll('.loading').forEach(el => {
+          el.textContent = 'Error';
+          el.classList.remove('loading');
+          el.classList.add('error');
+        });
+      });
+  });

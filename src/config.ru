@@ -27,7 +27,14 @@ get "/" do
   @total_sources = ROUTES.length
   @uptime = Time.now - START_TIME
   @original_config = ROUTES.transform_values { |route| route.slice(*SAFE_KEYS) }
-  @route_stats = ROUTES.transform_values do |route|
+  
+  slim :index
+end
+
+get "/api/stats" do
+  content_type :json
+  
+  route_stats = ROUTES.transform_values do |route|
     tiles_count = route[:db][:tiles].count
     misses_count = route[:db][:misses].count
     cache_size = get_tiles_size(route)
@@ -43,11 +50,18 @@ get "/" do
     }
   end
 
-  @total_tiles = @route_stats.values.sum { |stats| stats[:tiles_count] }
-  @total_misses = @route_stats.values.sum { |stats| stats[:misses_count] }
-  @total_cache_size = @route_stats.values.sum { |stats| stats[:cache_size] }
+  total_tiles = route_stats.values.sum { |stats| stats[:tiles_count] }
+  total_misses = route_stats.values.sum { |stats| stats[:misses_count] }
+  total_cache_size = route_stats.values.sum { |stats| stats[:cache_size] }
   
-  slim :index
+  {
+    route_stats: route_stats,
+    totals: {
+      tiles: total_tiles,
+      misses: total_misses,
+      cache_size: total_cache_size
+    }
+  }.to_json
 end
 
 get "/db" do

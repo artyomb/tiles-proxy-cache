@@ -241,6 +241,18 @@ html
       |   background: #7aa8cc; 
       |   border-color: #8bb9dd; 
       | }
+      | .loading {
+      |   animation: pulse 1.5s ease-in-out infinite;
+      |   color: #ffc66d !important;
+      | }
+      | .error {
+      |   color: #f44747 !important;
+      | }
+      | @keyframes pulse {
+      |   0% { opacity: 1; }
+      |   50% { opacity: 0.5; }
+      |   100% { opacity: 1; }
+      | }
 
   body
     .container
