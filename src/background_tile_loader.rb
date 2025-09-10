@@ -187,7 +187,7 @@ class BackgroundTileLoader
 
   def calculate_delay
     base_delay = 86400.0 / (@config[:daily_limit] || 1000)
-    (base_delay * (0.5 + rand)).clamp(1, 300)
+    base_delay * (0.8 + rand * 0.4)
   end
 
   def get_bounds_for_zoom(z)
