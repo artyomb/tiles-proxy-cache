@@ -82,10 +82,12 @@ module ViewHelpers
 
     if is_terrain
       style[:metadata] = {
-        filters: {source_name.downcase => [
-            { id: source_name.downcase },
-            { id: "hillshade_layer" }]},
-        locale: {"en" => {source_name.downcase => source_name.gsub('_', ' '),"hillshade_layer" => "Hillshade"}}
+        filters: { source_name.downcase => [
+          { id: source_name.downcase },
+          { id: "hillshade_layer" },
+          { id: "satellite_layer" }] },
+        locale: { "en" => { source_name.downcase =>
+                              source_name.gsub('_', ' '), "hillshade_layer" => "Hillshade", "satellite_layer" => "Satellite" } }
       }
     else
       style[:metadata] = {
@@ -106,24 +108,33 @@ module ViewHelpers
         encoding: encoding
       }
       style[:sources][hillshade_source][:bounds] = bounds if bounds
-      
+
       base_maxzoom = [route[:maxzoom], 15].max.clamp(15, 18)
       style[:sources][:base] = { type: "raster", tiles: ["https://mt1.google.com/vt/lyrs=p&x={x}&y={y}&z={z}"], tileSize: 256, maxzoom: base_maxzoom }
+      style[:sources][:satellite] = { type: "raster", tiles: ["https://mt2.google.com/vt/lyrs=s,h&x={x}&y={y}&z={z}"], tileSize: 256, maxzoom: base_maxzoom }
+
       style[:layers] << {
         id: "base-terrain",
         type: "raster",
         source: "base",
         metadata: { filter_id: source_name.downcase }
       }
-      style[:layers] << { 
-        id: "hillshade", 
-        type: "hillshade", 
-        source: hillshade_source, 
+      style[:layers] << {
+        id: "satellite-overlay",
+        type: "raster",
+        source: "satellite",
         layout: { visibility: "none" },
-        paint: { 
-          "hillshade-shadow-color": "#473B24", 
-          "hillshade-highlight-color": "#FFFFFF", 
-          "hillshade-accent-color": "#CCAA88" 
+        metadata: { filter_id: "satellite_layer" }
+      }
+      style[:layers] << {
+        id: "hillshade",
+        type: "hillshade",
+        source: hillshade_source,
+        layout: { visibility: "none" },
+        paint: {
+          "hillshade-shadow-color": "#473B24",
+          "hillshade-highlight-color": "#FFFFFF",
+          "hillshade-accent-color": "#CCAA88"
         },
         metadata: { filter_id: "hillshade_layer" }
       }
