@@ -52,7 +52,7 @@ class BackgroundTileLoader
         sleep 15
         begin
           result = @route[:db].run "PRAGMA wal_checkpoint(PASSIVE)"
-          if result[0] == 1
+          if result&.is_a?(Array) && result[0] == 1
             @route[:db].run "PRAGMA wal_checkpoint(RESTART)"
           end
         rescue => e
