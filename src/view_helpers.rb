@@ -62,6 +62,8 @@ module ViewHelpers
     encoding = route.dig(:metadata, :encoding)
     is_terrain = encoding == 'terrarium' || encoding == 'mapbox'
 
+    bounds = route.dig(:metadata, :bounds).split(',')&.map(&:to_f)
+
     style = {
       version: 8,
       name: "#{source_name} Map",
@@ -76,6 +78,7 @@ module ViewHelpers
       },
       layers: []
     }
+    style[:sources][source_name][:bounds] = bounds if bounds
 
     if is_terrain
       style[:metadata] = {
@@ -102,6 +105,7 @@ module ViewHelpers
         maxzoom: route[:maxzoom] || 20,
         encoding: encoding
       }
+      style[:sources][hillshade_source][:bounds] = bounds if bounds
       
       base_maxzoom = [route[:maxzoom], 15].max.clamp(15, 18)
       style[:sources][:base] = { type: "raster", tiles: ["https://mt1.google.com/vt/lyrs=p&x={x}&y={y}&z={z}"], tileSize: 256, maxzoom: base_maxzoom }
