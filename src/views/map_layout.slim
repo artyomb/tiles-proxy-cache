@@ -266,6 +266,23 @@ html
       |   height: 100%; background: #6897bb; border-radius: 2px;
       |   transition: width 0.3s ease; width: 0%;
       | }
+      | /* MapLibre Controls */
+      | .maplibregl-ctrl-scale, .maplibregl-ctrl-group, .maplibregl-ctrl-terrain, .maplibregl-ctrl-globe {
+      |   background: rgba(60, 63, 65, 0.95) !important; border: 1px solid #555555 !important;
+      |   border-radius: 4px !important; backdrop-filter: blur(10px) !important;
+      |   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3) !important;
+      | }
+      | .maplibregl-ctrl-scale { color: rgb(100, 185, 61) !important; font-size: 11px !important; padding: 4px 8px !important; }
+      | .maplibregl-ctrl-scale-line { background: #6897bb !important; border: 1px solid #7aa8cc !important; }
+      | .maplibregl-ctrl-group button { background: rgba(75, 105, 61, 0.8) !important; border: 1px solid rgba(72, 139, 92, 0.4) !important; color: #ffffff !important; font-size: 14px !important; font-weight: bold !important; transition: all 0.2s ease !important; }
+      | .maplibregl-ctrl-group button:hover { background: rgba(255, 198, 109, 0.9) !important; border-color: #ffd87d !important; color: #2b2b2b !important; transform: scale(1.05) !important; }
+      | .maplibregl-ctrl-group button:active { background: rgba(106, 153, 85, 1) !important; transform: scale(0.95) !important; }
+      | .maplibregl-ctrl-terrain button { background: rgba(104, 151, 187, 0.8) !important; border: 1px solid #7aa8cc !important; color: #ffffff !important; font-size: 16px !important; font-weight: bold !important; transition: all 0.2s ease !important; padding: 8px !important; }
+      | .maplibregl-ctrl-terrain button:hover { background: rgba(104, 151, 187, 1) !important; border-color: #8bb9dd !important; transform: scale(1.1) !important; box-shadow: 0 2px 8px rgba(104, 151, 187, 0.4) !important; }
+      | .maplibregl-ctrl-terrain button:active { transform: scale(0.95) !important; }
+      | .maplibregl-ctrl-globe button { background: rgba(255, 198, 109, 0.8) !important; border: 1px solid #ffd87d !important; color: #2b2b2b !important; font-size: 16px !important; font-weight: bold !important; transition: all 0.2s ease !important; padding: 8px !important; }
+      | .maplibregl-ctrl-globe button:hover { background: rgba(255, 198, 109, 1) !important; border-color: #ffe88d !important; transform: scale(1.1) !important; box-shadow: 0 2px 8px rgba(255, 198, 109, 0.4) !important; }
+      | .maplibregl-ctrl-globe button:active { transform: scale(0.95) !important; }
   body
     .container
       == yield 

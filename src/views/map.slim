@@ -234,7 +234,16 @@ javascript:
     };
 
     const setupMapEvents = () => {
-        map.addControl(new maplibregl.NavigationControl());
+        map.addControl(new maplibregl.NavigationControl({
+            visualizePitch: true,
+            showZoom: true,
+            showCompass: true
+        }));
+        
+        map.addControl(new maplibregl.ScaleControl({
+            maxWidth: 100,
+            unit: 'metric'
+        }));
         map.on('error', (e) => console.error('[MapLibre ERROR]', e?.error || e));
 
         map.on('style.load', () => {
@@ -276,6 +285,13 @@ javascript:
             map.addControl(new maplibregl.GlobeControl(), 'top-right');
         } catch (e) {
             console.warn('GlobeControl failed:', e);
+        }
+
+        if (currentStyle?.terrain) {
+            const terrainSourceName = currentStyle.terrain.source;
+            map.addControl(new maplibregl.TerrainControl({
+                source: terrainSourceName
+            }), 'top-right');
         }
 
         updateTerrainIndicator();
