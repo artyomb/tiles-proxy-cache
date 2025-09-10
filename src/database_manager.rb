@@ -12,6 +12,8 @@ module DatabaseManager
     create_tables(db)
     route[:db] = db
     
+    integrate_wal_files(db, route_name)
+    
     MetadataManager.initialize_metadata(db, route, route_name)
     
     route[:content_type] = "image/#{db[:metadata].where(name: 'format').get(:value) || 'png'}"
@@ -33,6 +35,19 @@ module DatabaseManager
     LOGGER.info("VACUUM completed#{name_str} in #{duration.round(2)}s")
   rescue => e
     LOGGER.error("VACUUM failed#{name_str}: #{e.message}")
+  end
+
+  def integrate_wal_files(db, name = nil)
+    name_str = name ? " for #{name}" : ""
+    LOGGER.info("Integrating WAL files#{name_str} on startup...")
+    
+    begin
+      db.run "PRAGMA wal_checkpoint(RESTART)"
+      db.run "PRAGMA wal_checkpoint(TRUNCATE)"
+      LOGGER.info("WAL integration completed#{name_str}")
+    rescue => e
+      LOGGER.error("Failed to integrate WAL#{name_str}: #{e.message}")
+    end
   end
 
   private
