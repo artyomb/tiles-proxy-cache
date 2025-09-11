@@ -172,7 +172,7 @@ OSM:
 | `/` | GET | Dashboard with service statistics | HTML interface |
 | `/db?source=name` | GET | Database viewer for specific source | HTML table view |
 | `/map?source=name` | GET | Interactive map preview | HTML map interface |
-| `/map/style?source=name` | GET | MapLibre style for source | JSON style |
+| `/{path}` | GET | MapLibre style for source | JSON style |
 
 ### Response Headers
 

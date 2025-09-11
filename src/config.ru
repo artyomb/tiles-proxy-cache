@@ -72,17 +72,12 @@ end
 
 get "/map" do
   if params[:source]
-    source, _ = validate_and_get_route(params[:source])
-    @style_url = "#{request.base_url}/map/style?source=#{source}"
+    _, route = validate_and_get_route(params[:source])
+    @style_url = "#{request.base_url}#{route[:path].gsub(/\/:[zxy]/, '')}"
   end
   slim(:map, layout: :map_layout)
 end
 
-get "/map/style" do
-  source, route = validate_and_get_route(params[:source])
-  content_type :json
-  generate_single_source_style(route, source)
-end
 
 get "/admin/vacuum" do
   content_type :json
@@ -153,27 +148,9 @@ ROUTES.each do |_name, route|
     blob ? serve_tile(route, blob, :miss) : serve_error_tile(route, 404)
   end
 
-  # TODO integrate with view_helpers.rb or delete this
   get route[:path].gsub(/\/:[zxy]/, '') do
-    host = request.env['rack.url_scheme'] + '://' + request.env['HTTP_HOST']
-    path = route[:path].gsub(':z', '{z}').gsub(':x', '{x}').gsub(':y', '{y}')
-
     content_type :json
-    {
-      version: 8,
-      id: "raster",
-      name: "Raster",
-      sources: {
-        raster: { type: "raster", tiles: [host + path],
-                  tileSize: route[:tile_size],
-                  minzoom: route[:minzoom] || 1,
-                  maxzoom: route[:maxzoom] || 20
-        }
-      },
-      layers: [
-        { id: 'raster', type: 'raster', source: "raster", layout: { visibility: "visible" }, paint: { "raster-resampling": "nearest" } }
-      ]
-    }.to_json
+    generate_single_source_style(route, _name.to_s)
   end
 end
 
