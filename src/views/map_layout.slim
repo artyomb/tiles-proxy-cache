@@ -6,6 +6,7 @@ html
     meta[name="viewport" content="width=device-width, initial-scale=1.0"]
     link[href='https://unpkg.com/maplibre-gl@5.0.1/dist/maplibre-gl.css' rel='stylesheet']
     script[src='https://unpkg.com/maplibre-gl@5.0.1/dist/maplibre-gl.js']
+    script[src='https://d3js.org/d3.v7.min.js']
     script[src='/js/filters.js']
     style
       | * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -283,6 +284,48 @@ html
       | .maplibregl-ctrl-globe button { background: rgba(255, 198, 109, 0.8) !important; border: 1px solid #ffd87d !important; color: #2b2b2b !important; font-size: 16px !important; font-weight: bold !important; transition: all 0.2s ease !important; padding: 8px !important; }
       | .maplibregl-ctrl-globe button:hover { background: rgba(255, 198, 109, 1) !important; border-color: #ffe88d !important; transform: scale(1.1) !important; box-shadow: 0 2px 8px rgba(255, 198, 109, 0.4) !important; }
       | .maplibregl-ctrl-globe button:active { transform: scale(0.95) !important; }
+      | .profile-overlay {
+      |   position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 1000;
+      |   background: rgba(60, 63, 65, 0.95); border: 1px solid #555555;
+      |   border-radius: 6px; padding: 12px; width: 70vw; max-width: 800px;
+      |   backdrop-filter: blur(10px); box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+      | }
+      | .profile-header {
+      |   display: flex; justify-content: space-between; align-items: center;
+      |   margin-bottom: 8px; border-bottom: 1px solid #555555; padding-bottom: 8px;
+      | }
+      | .profile-title { color: #ffc66d; font-weight: bold; font-size: 12px; }
+      | .profile-close {
+      |   background: none; border: none; color: #808080; cursor: pointer;
+      |   font-size: 14px; padding: 0; width: 16px; height: 16px;
+      |   display: flex; align-items: center; justify-content: center;
+      |   border-radius: 2px; transition: all 0.2s ease;
+      | }
+      | .profile-close:hover { background: #4b4d4f; color: #a9b7c6; }
+      | .profile-stats {
+      |   display: flex; justify-content: space-between; margin-bottom: 8px;
+      |   font-size: 10px; color: #808080;
+      | }
+      | .profile-chart { margin-top: 8px; }
+      | .elevation-tooltip {
+      |   position: fixed; z-index: 1001; pointer-events: none;
+      |   background: rgba(60, 63, 65, 0.95); border: 1px solid #555555;
+      |   border-radius: 4px; padding: 8px 12px; font-size: 16px;
+      |   color: #6a9955; backdrop-filter: blur(10px);
+      |   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+      |   transform: translate(10px, -50%); margin-left: 10px;
+      |   font-weight: bold;
+      | }
+      | .elevation-tooltip::after {
+      |   content: '×'; position: absolute; top: 0px; right: 3px;
+      |   font-size: 14px; color: #808080; cursor: pointer;
+      |   pointer-events: auto;
+      | }
+      | .profile-area { fill: #4CAF50; opacity: 0.3; }
+      | .profile-line { fill: none; stroke: #2196F3; stroke-width: 2; }
+      | .profile-tooltip-line { stroke: #ff0000; stroke-width: 1; stroke-dasharray: 3,3; }
+      | .profile-tooltip-circle { fill: #ff0000; r: 4; }
+      | .profile-tooltip-text { text-anchor: middle; fill: #ff0000; font-size: 10px; }
   body
     .container
       == yield 
