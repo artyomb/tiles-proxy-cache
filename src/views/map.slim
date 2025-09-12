@@ -316,9 +316,12 @@ javascript:
             features.length > 0 && console.log('Clicked feature:', features[0]);
             
             if (hoverMode === 'click' && currentStyle?.terrain) {
-                hideElevationTooltip();
                 const elevation = map.queryTerrainElevation([e.lngLat.lng, e.lngLat.lat]);
-                elevation != null && showElevationTooltip(e.originalEvent, elevation);
+                if (elevation != null) {
+                    elevationTooltip && elevationTooltip.style.display === 'block' 
+                        ? hideElevationTooltip() 
+                        : showElevationTooltip(e.originalEvent, elevation);
+                }
             }
         });
 
@@ -407,7 +410,6 @@ javascript:
     const showElevationTooltip = (e, elevation) => {
         if (!elevationTooltip) {
             elevationTooltip = Object.assign(document.createElement('div'), { className: 'elevation-tooltip' });
-            elevationTooltip.addEventListener('click', hideElevationTooltip);
             document.body.appendChild(elevationTooltip);
         }
         
@@ -562,7 +564,7 @@ javascript:
         const tooltip = g.append('g').style('display', 'none');
         tooltip.append('line').attr('class', 'profile-tooltip-line');
         tooltip.append('circle').attr('class', 'profile-tooltip-circle');
-        tooltip.append('text').attr('class', 'profile-tooltip-text').attr('dy', '-8px');
+        tooltip.append('text').attr('class', 'profile-tooltip-text');
 
         g.append('rect').attr('width', width).attr('height', height).attr('fill', 'transparent')
             .on('mousemove', function(event) {
@@ -570,10 +572,13 @@ javascript:
                 const distance = xScale.invert(mx);
                 const closest = profile.reduce((prev, curr) => Math.abs(curr.distance - distance) < Math.abs(prev.distance - distance) ? curr : prev);
                 
+                const yPos = yScale(closest.elevation);
                 tooltip.style('display', null)
-                    .attr('transform', `translate(${xScale(closest.distance)},${yScale(closest.elevation)})`);
-                tooltip.select('line').attr('y2', height - yScale(closest.elevation));
-                tooltip.select('text').text(`${closest.elevation.toFixed(0)}m`);
+                    .attr('transform', `translate(${xScale(closest.distance)},${yPos})`);
+                tooltip.select('line').attr('y2', height - yPos);
+                tooltip.select('text')
+                    .text(`${closest.elevation.toFixed(0)}m`)
+                    .attr('dy', yPos < 30 ? '20px' : '-8px');
                 
                 showMapMarker(closest.coordinates);
             })
@@ -616,6 +621,7 @@ javascript:
 
     const toggleHoverMode = () => {
         hoverMode = hoverMode === 'hover' ? 'click' : 'hover';
+        hideElevationTooltip();
         updateHoverModeButton();
     };
 

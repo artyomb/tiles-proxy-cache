@@ -316,16 +316,11 @@ html
       |   transform: translate(10px, -50%); margin-left: 10px;
       |   font-weight: bold;
       | }
-      | .elevation-tooltip::after {
-      |   content: '×'; position: absolute; top: 0px; right: 3px;
-      |   font-size: 14px; color: #808080; cursor: pointer;
-      |   pointer-events: auto;
-      | }
       | .profile-area { fill: #4CAF50; opacity: 0.3; }
       | .profile-line { fill: none; stroke: #2196F3; stroke-width: 2; }
       | .profile-tooltip-line { stroke: #ff0000; stroke-width: 1; stroke-dasharray: 3,3; }
       | .profile-tooltip-circle { fill: #ff0000; r: 4; }
-      | .profile-tooltip-text { text-anchor: middle; fill: #ff0000; font-size: 10px; }
+      | .profile-tooltip-text { text-anchor: middle; fill: #ff0000; font-size: 14px; }
   body
     .container
       == yield 
