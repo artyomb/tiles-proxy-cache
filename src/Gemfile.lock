@@ -46,6 +46,7 @@ GEM
     benchmark-perf (0.6.0)
     benchmark-trend (0.4.0)
     bigdecimal (3.2.2)
+    chunky_png (1.4.0)
     concurrent-ruby (1.3.5)
     connection_pool (2.5.3)
     console (1.33.0)
@@ -429,6 +430,7 @@ DEPENDENCIES
   async
   async-rspec
   autoforme
+  chunky_png
   falcon
   faraday
   faraday-net_http_persistent

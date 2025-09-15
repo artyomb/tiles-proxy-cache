@@ -22,6 +22,7 @@ SAFE_KEYS = %i[path target minzoom maxzoom mbtiles_file miss_timeout miss_max_re
 DB_SAFE_KEYS = SAFE_KEYS + %i[db]
 
 require_relative 'gost.rb' if ENV['GOST']
+require_relative 'lerc_ffi.rb'
 
 get "/" do
   @total_sources = ROUTES.length

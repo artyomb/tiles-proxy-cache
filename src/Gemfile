@@ -16,6 +16,7 @@ gem 'stack-service-base'
 #, path: '/home/user/projects/stack-service-base'
 
 gem 'ffi'
+gem 'chunky_png'
 gem 'faraday'
 # gem 'faraday-net_http'  # or just rely on the default adapter
 gem 'faraday-retry'
