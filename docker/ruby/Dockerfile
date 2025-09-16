@@ -14,6 +14,8 @@ RUN bundle install --jobs $(nproc) --retry=3 && \
 
 COPY . /app
 
+RUN cd /app/ext && ruby extconf.rb
+
 RUN mkdir -p /etc/ssl/openssl.cnf.d && cp /app/gost.conf /etc/ssl/openssl.cnf.d/gost.conf
 
 ENV RACK_ENV=production NODE_ENV=production OPENSSL_CONF=/etc/ssl/openssl.cnf.d/gost.conf
@@ -28,6 +30,8 @@ RUN apt update && apt install --fix-missing -y bash curl libssl-dev libengine-go
      && rm -rf /var/lib/apt/lists/*
 
 COPY --from=base /usr/local/bundle /usr/local/bundle
+
+COPY --from=base /app/ext/ /app/ext/
 
 # Force start & wait test Stage
 # COPY --from=tests /app/src/spec/results /app/src/spec/results

@@ -22,7 +22,7 @@ SAFE_KEYS = %i[path target minzoom maxzoom mbtiles_file miss_timeout miss_max_re
 DB_SAFE_KEYS = SAFE_KEYS + %i[db]
 
 require_relative 'gost.rb' if ENV['GOST']
-require_relative 'lerc_ffi.rb'
+require_relative 'ext/lerc_extension'
 
 get "/" do
   @total_sources = ROUTES.length
@@ -248,22 +248,45 @@ helpers do
     headers = build_request_headers.merge((route[:headers]&.dig(:request) || {}).transform_keys(&:to_s))
     response = route[:client].get(target_path, nil, headers)
 
-    return handle_response_error(response, route, z, x, y) if (error = validate_response(response))
+    return handle_response_error(response, route, z, x, y) if (error = validate_response(response, route))
 
     status response.status
     copy_headers_from_response(response.headers)
-    { error: false, data: response.body }
+    
+    data = response.body
+    if route[:lerc_enabled] && route[:lerc_decode] && data && !data.empty?
+      if response.headers['content-type']&.include?('text/html')
+        return { error: true, reason: 'arcgis_html_error', details: 'ArcGIS returned HTML error page', status: 404, body: data }
+      end
+      
+      begin
+        decoded_data = LercFFI.lerc_to_mapbox_png_c(data)
+        if decoded_data
+          headers['Content-Type'] = 'image/png'
+          data = decoded_data
+        else
+          return { error: true, reason: 'lerc_decode_failed', details: 'Failed to decode LERC data', status: 500, body: data }
+        end
+      rescue => e
+        return { error: true, reason: 'lerc_decode_error', details: e.message, status: 500, body: data }
+      end
+    end
+    
+    { error: false, data: data }
   end
 
-  def validate_response(response)
+  def validate_response(response, route)
     return "HTTP #{response.status}" if ![200, 304, 206].include?(response.status) && response.status >= 400
+    
+    return nil if route[:lerc_enabled]
+    
     return "Response size: #{response.body.size} bytes" if response.body.size < 100
     return "Content-Type: #{response.headers['content-type']}" unless response.headers['content-type']&.include?('image/')
     nil
   end
 
   def handle_response_error(response, route, z, x, y)
-    error = validate_response(response)
+    error = validate_response(response, route)
     LOGGER.info("fetch_http error: #{error} (status: #{response.status}, source: #{route[:target]}, tile: #{z}/#{x}/#{y})")
     { error: true, reason: 'fetch_error', details: error, status: response.status, body: response.body }
   end
