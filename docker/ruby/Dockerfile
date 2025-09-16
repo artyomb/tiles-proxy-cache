@@ -44,7 +44,8 @@ ENV RUBY_YJIT_ENABLE=1 \
     SERVER_ENV=production \
     RACK_ENV=production \
     PORT=7000 \
-    OPENSSL_CONF=/etc/ssl/openssl.cnf.d/gost.conf
+    OPENSSL_CONF=/etc/ssl/openssl.cnf.d/gost.conf \
+    LD_LIBRARY_PATH=/app/ext:$LD_LIBRARY_PATH
 
 WORKDIR /app
 
