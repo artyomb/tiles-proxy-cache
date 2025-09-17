@@ -75,6 +75,7 @@ get "/map" do
   if params[:source]
     _, route = validate_and_get_route(params[:source])
     @style_url = "#{request.base_url}#{route[:path].gsub(/\/:[zxy]/, '')}"
+    @style_url += "?debug=true" if params[:debug] == 'true'
   end
   slim(:map, layout: :map_layout)
 end
@@ -142,16 +143,16 @@ ROUTES.each do |_name, route|
     end
 
     if (miss_status = should_skip_request?(route, z, x, y))
-      return serve_error_tile(route, miss_status)
+      return debug_mode? ? serve_error_tile(route, miss_status) : serve_no_content
     end
 
     blob = fetch_with_lock(route, z, x, y, tms)
-    blob ? serve_tile(route, blob, :miss) : serve_error_tile(route, 404)
+    blob ? serve_tile(route, blob, :miss) : (debug_mode? ? serve_error_tile(route, 404) : serve_no_content)
   end
 
   get route[:path].gsub(/\/:[zxy]/, '') do
     content_type :json
-    generate_single_source_style(route, _name.to_s)
+    generate_single_source_style(route, _name.to_s, debug_mode?)
   end
 end
 
@@ -161,6 +162,10 @@ helpers do
   def tms_y(z, y) = (1 << z) - 1 - y
 
   def key(z, x, y) = "#{z}/#{x}/#{y}"
+
+  def debug_mode?
+    params[:debug] == 'true'
+  end
 
   def validate_and_get_route(source)
     source = source&.strip
@@ -186,6 +191,11 @@ helpers do
     headers build_response_headers(route, :error)
     content_type route[:content_type]
     generate_error_tile(status_code)
+  end
+
+  def serve_no_content
+    status 204
+    ""
   end
 
   def fetch_with_lock(route, z, x, y, tms)

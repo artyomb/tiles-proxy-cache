@@ -36,7 +36,8 @@
         .source-name = name
         .source-actions
           a.btn.style-btn href=route[:path].gsub(/\/:[zxy]/, '') 📋 JSON Style
-          a.btn.map-btn href="/map?source=#{name}" 🌍 Map Preview
+          a.btn.map-btn href="/map?source=#{name}" 🌍 Map preview
+          a.btn.debug-btn href="/map?source=#{name}&debug=true" Debug Map
       
       .source-main-info
         .info-grid

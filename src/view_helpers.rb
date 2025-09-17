@@ -57,12 +57,15 @@ module ViewHelpers
     end
   end
 
-  def generate_single_source_style(route, source_name)
+  def generate_single_source_style(route, source_name, debug_mode = false)
     base_url = request.base_url
     encoding = route.dig(:metadata, :encoding)
     is_terrain = encoding == 'terrarium' || encoding == 'mapbox'
 
     bounds = route.dig(:metadata, :bounds).split(',')&.map(&:to_f)
+    
+    tile_url = "#{base_url}#{route[:path].gsub(':z', '{z}').gsub(':x', '{x}').gsub(':y', '{y}')}"
+    tile_url += "?debug=true" if debug_mode
 
     style = {
       version: 8,
@@ -70,7 +73,7 @@ module ViewHelpers
       sources: {
         source_name => {
           type: is_terrain ? "raster-dem" : "raster",
-          tiles: ["#{base_url}#{route[:path].gsub(':z', '{z}').gsub(':x', '{x}').gsub(':y', '{y}')}"],
+          tiles: [tile_url],
           tileSize: route[:tile_size],
           minzoom: route[:minzoom] || 1,
           maxzoom: route[:maxzoom] || 20
@@ -101,7 +104,7 @@ module ViewHelpers
       hillshade_source = "#{source_name}_hillshade"
       style[:sources][hillshade_source] = {
         type: "raster-dem",
-        tiles: ["#{base_url}#{route[:path].gsub(':z', '{z}').gsub(':x', '{x}').gsub(':y', '{y}')}"],
+        tiles: [tile_url],
         tileSize: route[:tile_size],
         minzoom: route[:minzoom] || 1,
         maxzoom: route[:maxzoom] || 20,
