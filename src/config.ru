@@ -254,7 +254,7 @@ helpers do
     copy_headers_from_response(response.headers)
     
     data = response.body
-    if route[:lerc_enabled] && route[:lerc_decode] && data && !data.empty?
+    if route[:source_format] == "lerc" && data && !data.empty?
       if response.headers['content-type']&.include?('text/html')
         return { error: true, reason: 'arcgis_html_error', details: 'ArcGIS returned HTML error page', status: 404, body: data }
       end
@@ -278,7 +278,7 @@ helpers do
   def validate_response(response, route)
     return "HTTP #{response.status}" if ![200, 304, 206].include?(response.status) && response.status >= 400
     
-    return nil if route[:lerc_enabled]
+    return nil if route[:source_format] == "lerc"
     
     return "Response size: #{response.body.size} bytes" if response.body.size < 100
     return "Content-Type: #{response.headers['content-type']}" unless response.headers['content-type']&.include?('image/')

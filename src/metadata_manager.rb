@@ -7,7 +7,7 @@ module MetadataManager
   def initialize_metadata(db, route, route_name)
     return if db[:metadata].count > 0
 
-    format_and_size = route[:lerc_enabled] ? 
+    format_and_size = route[:source_format] == "lerc" ? 
       { format: route.dig(:metadata, :format) || 'png', tile_size: (route.dig(:metadata, :tileSize) || 256).to_i } :
       detect_format_and_tile_size(route)
 
