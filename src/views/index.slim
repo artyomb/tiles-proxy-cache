@@ -71,43 +71,45 @@
 
 javascript:
   document.addEventListener('DOMContentLoaded', function() {
-    fetch('/api/stats')
-      .then(response => response.json())
-      .then(data => {
-        document.getElementById('total-tiles').textContent = data.totals.tiles;
-        document.getElementById('total-misses').textContent = data.totals.misses;
-        document.getElementById('total-cache-size').textContent = (data.totals.cache_size / 1024.0 / 1024.0).toFixed(2) + ' MB';
-        
-        document.getElementById('total-tiles').classList.remove('loading');
-        document.getElementById('total-misses').classList.remove('loading');
-        document.getElementById('total-cache-size').classList.remove('loading');
-        
-        Object.keys(data.route_stats).forEach(sourceName => {
-          const stats = data.route_stats[sourceName];
+    setTimeout(() => {
+      fetch('/api/stats')
+        .then(response => response.json())
+        .then(data => {
+          document.getElementById('total-tiles').textContent = data.totals.tiles;
+          document.getElementById('total-misses').textContent = data.totals.misses;
+          document.getElementById('total-cache-size').textContent = (data.totals.cache_size / 1024.0 / 1024.0).toFixed(2) + ' MB';
           
-          document.getElementById(`tiles-${sourceName}`).textContent = stats.tiles_count;
-          document.getElementById(`misses-${sourceName}`).textContent = stats.misses_count;
-          document.getElementById(`size-${sourceName}`).textContent = (stats.cache_size / 1024.0 / 1024.0).toFixed(2) + ' MB';
-          document.getElementById(`coverage-${sourceName}`).textContent = stats.coverage_percentage + '%';
+          document.getElementById('total-tiles').classList.remove('loading');
+          document.getElementById('total-misses').classList.remove('loading');
+          document.getElementById('total-cache-size').classList.remove('loading');
           
-          document.getElementById(`tiles-${sourceName}`).classList.remove('loading');
-          document.getElementById(`misses-${sourceName}`).classList.remove('loading');
-          document.getElementById(`size-${sourceName}`).classList.remove('loading');
-          document.getElementById(`coverage-${sourceName}`).classList.remove('loading');
+          Object.keys(data.route_stats).forEach(sourceName => {
+            const stats = data.route_stats[sourceName];
+            
+            document.getElementById(`tiles-${sourceName}`).textContent = stats.tiles_count;
+            document.getElementById(`misses-${sourceName}`).textContent = stats.misses_count;
+            document.getElementById(`size-${sourceName}`).textContent = (stats.cache_size / 1024.0 / 1024.0).toFixed(2) + ' MB';
+            document.getElementById(`coverage-${sourceName}`).textContent = stats.coverage_percentage + '%';
+            
+            document.getElementById(`tiles-${sourceName}`).classList.remove('loading');
+            document.getElementById(`misses-${sourceName}`).classList.remove('loading');
+            document.getElementById(`size-${sourceName}`).classList.remove('loading');
+            document.getElementById(`coverage-${sourceName}`).classList.remove('loading');
+            
+            const chartElement = document.getElementById(`chart-${sourceName}`);
+            if (chartElement && stats.coverage_data) {
+              createCoverageChart(`chart-${sourceName}`, stats.coverage_data);
+            }
+          });
+        })
+        .catch(error => {
+          console.error('Error loading stats:', error);
           
-          const chartElement = document.getElementById(`chart-${sourceName}`);
-          if (chartElement && stats.coverage_data) {
-            createCoverageChart(`chart-${sourceName}`, stats.coverage_data);
-          }
+          document.querySelectorAll('.loading').forEach(el => {
+            el.textContent = 'Error';
+            el.classList.remove('loading');
+            el.classList.add('error');
+          });
         });
-      })
-      .catch(error => {
-        console.error('Error loading stats:', error);
-        
-        document.querySelectorAll('.loading').forEach(el => {
-          el.textContent = 'Error';
-          el.classList.remove('loading');
-          el.classList.add('error');
-        });
-      });
+    }, 0);
   });
