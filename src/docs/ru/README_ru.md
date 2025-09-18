@@ -261,7 +261,6 @@ src/
 ├── database_manager.rb       # Управление SQLite базой данных
 ├── metadata_manager.rb       # Определение формата тайлов и метаданные
 ├── view_helpers.rb           # Статистика панели и утилиты  
-├── gost.rb                   # Поддержка криптографии ГОСТ
 ├── Gemfile                   # Ruby зависимости
 ├── configs/
 │   └── tile-services.yaml   # Конфигурация сервиса

@@ -103,13 +103,12 @@ CartoDB_Positron:
     center: "0,0,3"
     type: "baselayer"  # baselayer | overlay
 
-# Custom service with authentication and GOST support
+# Custom service with authentication
 Custom_Service:
   path: "/custom/:z/:x/:y"
   target: "https://your-tile-service.com/tiles/{z}/{x}/{y}.png"
   minzoom: 0
   maxzoom: 22
-  gost_enabled: false     # Set to true for services requiring GOST encryption
   miss_timeout: 300        # 5 minutes timeout for error tiles
   miss_max_records: 10000  # max miss records before cleanup
   headers:
