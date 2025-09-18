@@ -69,6 +69,12 @@
             .info-item
               .info-label Coverage
               .info-value.loading id="coverage-#{name}" ⏳
+            .info-item
+              .info-label Autoscan
+              .info-value = route.dig(:autoscan, :enabled) ? 'Enabled' : 'Disabled'
+            .info-item
+              .info-label Scan Zoom
+              .info-value = route.dig(:autoscan, :max_scan_zoom) || 'N/A'
 
 javascript:
   document.addEventListener('DOMContentLoaded', function() {
