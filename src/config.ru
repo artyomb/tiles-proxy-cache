@@ -258,7 +258,7 @@ helpers do
       end
       
       begin
-        decoded_data = LercFFI.lerc_to_mapbox_png_c(data)
+        decoded_data = LercFFI.lerc_to_mapbox_png(data)
         if decoded_data
           headers['Content-Type'] = 'image/png'
           data = decoded_data

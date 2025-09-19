@@ -10,7 +10,6 @@ RUN curl -fsSL https://github.com/Esri/lerc/archive/refs/tags/v4.0.0.tar.gz -o l
     tar -xz --strip-components=1 -C /tmp -f lerc.tar.gz && \
     cd /tmp && cmake . -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DCMAKE_INSTALL_PREFIX=/usr/local && \
     make -j$(nproc) && make install && \
-    cp src/LercLib/include/Lerc_c_api.h /usr/local/include/lerc_api.h && \
     ldconfig && rm -rf /tmp lerc.tar.gz
 
 RUN echo 'gem: --no-document' >> ~/.gemrc
