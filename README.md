@@ -11,10 +11,13 @@ A high-performance tile caching proxy service that provides intelligent tile cac
 
 - **Tile Caching**: Local caching using SQLite with MBTiles schema for optimal performance
 - **Background Tile Loading**: Automated preloading system with configurable scanning strategies and daily limits
-- **Multi-Source Support**: Simultaneous caching from multiple tile providers (satellite, topographic, vector tiles, etc.)
-- **Error Handling**: Advanced miss tracking with customizable error tiles for different HTTP status codes
-- **Web Monitoring Interface**: Real-time statistics, coverage analysis, and interactive map preview
-- **Performance Optimization**: WAL mode SQLite, connection pooling, and memory-mapped I/O
+- **Multi-Source Support**: Simultaneous caching from multiple tile providers (satellite, topographic, DEM data, LERC elevation data, etc.)
+- **LERC Format Support**: Native support for ArcGIS LERC (Limited Error Raster Compression) format with automatic conversion to Mapbox Terrain-RGB PNG
+- **DEM Data Processing**: Specialized handling of Digital Elevation Model data with support for Terrarium and Mapbox RGB encoding
+- **Advanced Error Handling**: Intelligent miss tracking with customizable error tiles for different HTTP status codes
+- **Interactive Web Interface**: Real-time statistics, coverage analysis, interactive map preview with 3D terrain support
+- **Performance Optimization**: WAL mode SQLite, connection pooling, memory-mapped I/O, and Ruby JIT compilation
+- **GOST Cryptography**: Built-in support for GOST cryptographic algorithms for enhanced security
 - **Docker Ready**: Containerized deployment with volume mounting for configuration and data persistence
 
 ## Architecture Overview
@@ -23,18 +26,20 @@ The service consists of several integrated components:
 
 ### Core Components
 
-- **[Tile Proxy Engine](src/config.ru)** - Main Sinatra application handling tile requests with intelligent caching
+- **[Tile Proxy Engine](src/config.ru)** - Main Sinatra application handling tile requests with intelligent caching and LERC processing
 - **[Background Tile Loader](src/background_tile_loader.rb)** - Automated tile preloading with configurable scanning strategies
 - **[Database Manager](src/database_manager.rb)** - SQLite database optimization and MBTiles schema management
-- **[Metadata Manager](src/metadata_manager.rb)** - Automatic format detection and metadata initialization
-- **[Monitoring Interface](src/views/)** - Web-based dashboard for statistics and map preview
+- **[Metadata Manager](src/metadata_manager.rb)** - Configurable or automatic format detection and metadata initialization
+- **[LERC Extension](src/ext/lerc_extension.cpp)** - C++ extension for LERC format decoding and Mapbox Terrain-RGB conversion
+- **[Monitoring Interface](src/views/)** - Web-based dashboard with interactive map preview and 3D terrain support
 
 ### Data Flow
 
 1. **Tile Request** → Cache check → Serve cached tile or fetch from upstream
-2. **Cache Miss** → HTTP request to source → Store in SQLite → Serve to client
+2. **Cache Miss** → HTTP request to source → Process format (LERC conversion if needed) → Store in SQLite → Serve to client
 3. **Background Scanning** → Systematic tile preloading based on zoom bounds
 4. **Error Management** → Miss tracking with timeout and cleanup mechanisms
+5. **LERC Processing** → Configurable conversion of LERC data to Mapbox Terrain-RGB PNG format
 
 ## Quick Start
 
@@ -148,12 +153,26 @@ Topographic:
           hit: 604800     # 7 days
           miss: 3600      # 1 hour
 
-# Open source map service
-OSM:
-  path: "/osm/:z/:x/:y"
-  target: "https://example-osm.org/tiles/{z}/{x}/{y}.png"
-  mbtiles_file: "openstreetmap.mbtiles"
-  autoscan: { enabled: true, daily_limit: 10000, strategy: "grid" }
+# DEM terrain service (Terrarium format)
+DEM_Terrain:
+  path: "/dem/:z/:x/:y"
+  target: "https://example-dem.com/terrain/tiles/{z}/{y}/{x}.png"
+  mbtiles_file: "dem_terrain.mbtiles"
+  metadata:
+    encoding: "terrarium"
+    type: "overlay"
+  autoscan: { enabled: false, daily_limit: 10000 }
+
+# LERC elevation service
+LERC_Elevation:
+  path: "/lerc/:z/:x/:y"
+  target: "https://example-lerc.com/elevation/tiles/{z}/{y}/{x}"
+  source_format: "lerc"
+  mbtiles_file: "lerc_elevation.mbtiles"
+  metadata:
+    encoding: "mapbox"
+    type: "overlay"
+  autoscan: { enabled: false, daily_limit: 5000 }
 ```
 
 ## API Reference
@@ -170,8 +189,10 @@ OSM:
 | Endpoint | Method | Description | Response |
 |----------|--------|-------------|----------|
 | `/` | GET | Dashboard with service statistics | HTML interface |
+| `/api/stats` | GET | JSON statistics for all sources | JSON data |
 | `/db?source=name` | GET | Database viewer for specific source | HTML table view |
-| `/map?source=name` | GET | Interactive map preview | HTML map interface |
+| `/map?source=name` | GET | Interactive map preview with 3D terrain support | HTML map interface |
+| `/admin/vacuum` | GET | Database maintenance (VACUUM operation) | JSON status |
 | `/{path}` | GET | MapLibre style for source | JSON style |
 
 ### Response Headers
@@ -237,6 +258,7 @@ CREATE TABLE tile_scan_progress (
 - **Memory Mapping**: 512MB mmap_size for faster file access
 - **Connection Pooling**: Up to 8 concurrent connections per source
 - **Optimized Pragmas**: Tuned for tile caching workloads
+- **Manual VACUUM**: On-demand database maintenance for optimal performance
 
 ### Caching Strategy
 
@@ -244,6 +266,7 @@ CREATE TABLE tile_scan_progress (
 - **Cleanup Mechanisms**: Automatic old data removal based on configured limits
 - **Lock-based Concurrency**: Per-tile mutex to prevent duplicate requests
 - **Error Tile Serving**: Pre-defined error tiles for different HTTP status codes
+- **Format Detection**: Configurable or automatic detection of tile formats and metadata initialization
 
 ### Background Loading
 
@@ -251,6 +274,13 @@ CREATE TABLE tile_scan_progress (
 - **Daily Limits**: Configurable request throttling to respect upstream policies
 - **Progress Persistence**: Resumable scanning after service restarts
 - **WAL Checkpointing**: Background SQLite maintenance for optimal performance
+
+### LERC Processing
+
+- **Native C++ Extension**: High-performance LERC decoding using Esri LERC library
+- **Automatic Conversion**: Seamless conversion from LERC to Mapbox Terrain-RGB PNG
+- **Memory Optimization**: Efficient memory management with RAII principles
+- **Error Handling**: Comprehensive error handling for malformed LERC data
 
 ## File Structure
 
@@ -260,17 +290,26 @@ src/
 ├── background_tile_loader.rb  # Automated tile preloading system
 ├── database_manager.rb       # SQLite database management
 ├── metadata_manager.rb       # Tile format detection and metadata
-├── view_helpers.rb           # Dashboard statistics and utilities  
+├── view_helpers.rb           # Dashboard statistics and utilities
+├── gost.conf                 # GOST cryptography configuration
 ├── Gemfile                   # Ruby dependencies
 ├── configs/
 │   └── tile-services.yaml   # Service configuration
 ├── views/                    # Web interface templates
 │   ├── index.slim           # Main dashboard
 │   ├── database.slim        # Database browser
-│   ├── map.slim             # Interactive map
+│   ├── map.slim             # Interactive map with 3D terrain
+│   ├── map_layout.slim      # Map-specific layout
 │   └── layout.slim          # Base layout
 ├── assets/
 │   └── error_tiles/         # Error tile images
+├── ext/                      # C++ extensions
+│   ├── lerc_extension.cpp   # LERC format processing
+│   ├── extconf.rb           # Extension configuration
+│   └── stb_image_write.h    # Image writing library
+├── docs/                     # Documentation
+│   ├── en/                  # English documentation
+│   └── ru/                  # Russian documentation
 └── spec/                    # Test suite
 ```
 
@@ -281,6 +320,8 @@ src/
 - Ruby 3.4+
 - SQLite 3
 - Bundler
+- C++ compiler with C++23 support
+- LERC library (v4.0.0)
 - Docker (optional)
 
 ### Setup
@@ -288,6 +329,9 @@ src/
 ```bash
 # Install dependencies
 bundle install
+
+# Build C++ extensions
+cd ext && ruby extconf.rb && make
 
 # Set up configuration
 cp configs/tile-services.yaml.example configs/tile-services.yaml
@@ -365,8 +409,45 @@ The web interface provides comprehensive monitoring:
 - **Service Statistics**: Total sources, cached tiles, cache size, uptime
 - **Per-Source Metrics**: Cache hits/misses, coverage percentage, database size
 - **Coverage Visualization**: D3.js charts showing tile coverage per zoom level
-- **Interactive Maps**: MapLibre-based preview with performance metrics
-- **Database Browser**: Direct SQLite data inspection and querying
+- **Interactive Maps**: MapLibre-based preview with 3D terrain support and elevation profiles
+- **Database Browser**: Direct SQLite data inspection and querying with VACUUM operations
+- **Performance Monitoring**: Real-time FPS, memory usage, and tile loading metrics
+- **Layer Management**: Dynamic layer visibility controls and filter systems
+- **Terrain Analysis**: Elevation tooltips and interactive elevation profile generation
+
+## LERC Format Support
+
+The service includes native support for ArcGIS LERC (Limited Error Raster Compression) format, commonly used for elevation data:
+
+### Features
+
+- **Configurable Processing**: LERC format processing is enabled via `source_format: "lerc"` configuration
+- **Native Conversion**: C++ extension converts LERC data to Mapbox Terrain-RGB PNG format
+- **High Performance**: Optimized C++ implementation with aggressive compiler optimizations
+- **Memory Efficient**: RAII-based memory management with automatic cleanup
+- **Error Handling**: Comprehensive error handling for malformed or corrupted LERC data
+
+### Configuration
+
+```yaml
+LERC_Elevation:
+  path: "/lerc/:z/:x/:y"
+  target: "https://example-lerc.com/elevation/tiles/{z}/{y}/{x}"
+  source_format: "lerc"  # Enable LERC processing
+  mbtiles_file: "lerc_elevation.mbtiles"
+  metadata:
+    encoding: "mapbox"   # Output format for MapLibre compatibility
+    type: "overlay"
+```
+
+### Technical Details
+
+- **LERC Library**: Uses Esri LERC v4.0.0 for decoding
+- **Encoding**: Converts to Mapbox Terrain-RGB with 0.1m precision
+- **Height Range**: Supports elevations from -10,000m to +16,777,215m
+- **Performance**: Optimized with `-O3`, `-march=native`, and `-flto` compiler flags
+
+For detailed technical documentation, see [LERC Extension Documentation](src/docs/en/lerc_extension.md).
 
 ## Contributing
 

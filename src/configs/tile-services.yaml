@@ -1,5 +1,9 @@
 # Example configuration for tiles-proxy-cache
-# Demonstrates various tile service configurations
+# Demonstrates various tile service configurations including:
+# - Standard image tiles (PNG, JPG, WebP)
+# - LERC elevation data processing
+# - High-resolution tiles
+# - Custom authentication and headers
 
 # Satellite imagery service
 World_Imagery:
@@ -85,7 +89,7 @@ OSM:
     enabled: true
     daily_limit: 10000
     max_scan_zoom: 12
-    strategy: "human_like"
+    strategy: "grid"
 
 # Light theme map service
 CartoDB_Positron:
@@ -153,20 +157,32 @@ High_Res_Tiles:
     center: "0,0,3"
     type: "baselayer"  # baselayer | overlay
 
-# Vector tiles service
-Vector_Tiles:
-  path: "/vector/:z/:x/:y"
-  target: "https://example-vector.com/tiles/{z}/{x}/{y}.pbf"
+# LERC elevation data service
+LERC_Elevation:
+  path: "/lerc/:z/:x/:y"
+  target: "https://example-lerc.com/elevation/tiles/{z}/{y}/{x}"
+  source_format: "lerc"    # Enable LERC processing
   minzoom: 1
-  maxzoom: 16
+  maxzoom: 15
   miss_timeout: 300        # 5 minutes timeout for error tiles
   miss_max_records: 10000  # max miss records before cleanup
   headers:
-    Accept: "application/x-protobuf"
+    request:
+      User-Agent: "TileProxy/1.0"
+    response:
+      Cache-Control:
+        max-age:
+          hit: 86400      # 24 hours
+          miss: 300       # 5 minutes
   query_params:
-    access_token: "your-vector-tiles-token"
-  mbtiles_file: "vector_tiles.mbtiles"
+  mbtiles_file: "lerc_elevation.mbtiles"
   metadata:
     bounds: "-180,-85.0511,180,85.0511"
     center: "0,0,4"
-    type: "overlay"  # baselayer | overlay
+    type: "overlay"       # baselayer | overlay
+    encoding: "mapbox"    # Output format for MapLibre compatibility
+  autoscan:
+    enabled: false
+    daily_limit: 5000
+    max_scan_zoom: 10
+    strategy: "grid"
