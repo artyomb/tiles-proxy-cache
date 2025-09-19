@@ -2,6 +2,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <lerc_api.h>
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
 
@@ -10,24 +11,6 @@
 #define MAPBOX_OFFSET 10000.0f
 #define MAPBOX_SCALE 0.1f
 #define MAX_24BIT 16777215
-
-extern int lerc_getBlobInfo(const unsigned char* pLercBlob, 
-                           unsigned int blobSize, 
-                           unsigned int* infoArray, 
-                           double* dataRangeArray, 
-                           int infoArraySize, 
-                           int dataRangeArraySize);
-
-extern int lerc_decode(const unsigned char* pLercBlob, 
-                      unsigned int blobSize, 
-                      int band, 
-                      const unsigned char* pValidBytes, 
-                      int nDepth,
-                      int nCols, 
-                      int nRows, 
-                      int nBands, 
-                      int dataType, 
-                      void* pData);
 
 static void* safe_malloc(size_t size) {
     if (size == 0) return NULL;
