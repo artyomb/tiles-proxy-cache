@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module ViewHelpers
   def get_tiles_size(route)
     route[:db][:tiles].sum(Sequel.function(:length, :tile_data)) || 0
@@ -6,7 +8,7 @@ module ViewHelpers
   def tiles_per_zoom(z, route = nil)
     return 4 ** z unless route
 
-    bounds_str = route.dig(:metadata, :bounds) || "-180,-85.0511,180,85.0511"
+    bounds_str = route.dig(:metadata, :bounds) || '-180,-85.0511,180,85.0511'
     west, south, east, north = bounds_str.split(',').map(&:to_f)
 
     min_x = [(west + 180) / 360 * (1 << z), 0].max.floor
@@ -43,7 +45,7 @@ module ViewHelpers
     total_possible = (min_zoom..max_zoom).sum { |z| tiles_per_zoom(z, route) }
     total_cached = route[:db][:tiles].where(zoom_level: min_zoom..max_zoom).count
 
-    sprintf('%.8f', (total_cached.to_f / total_possible) * 100).sub(/\.?0+$/, '')
+    format('%.8f', (total_cached.to_f / total_possible) * 100).sub(/\.?0+$/, '')
   end
 
   def d3_coverage_data(route)
@@ -60,19 +62,20 @@ module ViewHelpers
   def generate_single_source_style(route, source_name, debug_mode = false)
     base_url = request.base_url
     encoding = route.dig(:metadata, :encoding)
-    is_terrain = encoding == 'terrarium' || encoding == 'mapbox'
+    is_terrain = %w[terrarium mapbox].include?(encoding)
 
     bounds = route.dig(:metadata, :bounds).split(',')&.map(&:to_f)
 
     tile_url = "#{base_url}#{route[:path].gsub(':z', '{z}').gsub(':x', '{x}').gsub(':y', '{y}')}"
-    tile_url += "?debug=true" if debug_mode
+    tile_url += '?debug=true' if debug_mode
 
     style = {
       version: 8,
       name: "#{source_name} Map",
+      glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
       sources: {
         source_name => {
-          type: is_terrain ? "raster-dem" : "raster",
+          type: is_terrain ? 'raster-dem' : 'raster',
           tiles: [tile_url],
           tileSize: route[:tile_size],
           minzoom: route[:minzoom] || 1,
@@ -87,17 +90,19 @@ module ViewHelpers
       style[:metadata] = {
         filters: { source_name.downcase => [
           { id: source_name.downcase },
-          { id: "color_relief_layer" },
-          { id: "brown_relief_layer" },
-          { id: "hillshade_layer" },
-          { id: "satellite_layer" }] },
-        locale: { "en" => { source_name.downcase =>
-                              source_name.gsub('_', ' '), "color_relief_layer" => "Color Relief", "brown_relief_layer" => "Brown Relief", "hillshade_layer" => "Hillshade", "satellite_layer" => "Satellite" } }
+          { id: 'color_relief_layer' },
+          { id: 'brown_relief_layer' },
+          { id: 'hillshade_layer' },
+          { id: 'contour_layer' },
+          { id: 'satellite_layer' }
+        ] },
+        locale: { 'en' => { source_name.downcase =>
+                              source_name.gsub('_', ' '), 'color_relief_layer' => 'Color Relief', 'brown_relief_layer' => 'Brown Relief', 'hillshade_layer' => 'Hillshade', 'contour_layer' => 'Contour Lines', 'satellite_layer' => 'Satellite' } }
       }
     else
       style[:metadata] = {
         filters: { source_name.downcase => [{ id: source_name.downcase }] },
-        locale: { "en" => { source_name.downcase => source_name.gsub('_', ' ') } }
+        locale: { 'en' => { source_name.downcase => source_name.gsub('_', ' ') } }
       }
     end
 
@@ -105,7 +110,7 @@ module ViewHelpers
       style[:sources][source_name][:encoding] = encoding
       hillshade_source = "#{source_name}_hillshade"
       style[:sources][hillshade_source] = {
-        type: "raster-dem",
+        type: 'raster-dem',
         tiles: [tile_url],
         tileSize: route[:tile_size],
         minzoom: route[:minzoom] || 1,
@@ -115,93 +120,129 @@ module ViewHelpers
       style[:sources][hillshade_source][:bounds] = bounds if bounds
 
       base_maxzoom = [route[:maxzoom], 15].max.clamp(15, 18)
-      style[:sources][:base] = { type: "raster", tiles: ["https://mt1.google.com/vt/lyrs=p&x={x}&y={y}&z={z}"], tileSize: 256, maxzoom: base_maxzoom }
-      style[:sources][:satellite] = { type: "raster", tiles: ["https://mt2.google.com/vt/lyrs=s,h&x={x}&y={y}&z={z}"], tileSize: 256, maxzoom: base_maxzoom }
+      style[:sources][:base] = { type: 'raster', tiles: ['https://mt1.google.com/vt/lyrs=p&x={x}&y={y}&z={z}'], tileSize: 256, maxzoom: base_maxzoom }
+      style[:sources][:satellite] = { type: 'raster', tiles: ['https://mt2.google.com/vt/lyrs=s,h&x={x}&y={y}&z={z}'], tileSize: 256, maxzoom: base_maxzoom }
 
       style[:layers] << {
-        id: "base-terrain",
-        type: "raster",
-        source: "base",
+        id: 'base-terrain',
+        type: 'raster',
+        source: 'base',
         metadata: { filter_id: source_name.downcase }
       }
       style[:layers] << {
-        id: "satellite-overlay",
-        type: "raster",
-        source: "satellite",
-        layout: { visibility: "none" },
-        metadata: { filter_id: "satellite_layer" }
+        id: 'satellite-overlay',
+        type: 'raster',
+        source: 'satellite',
+        layout: { visibility: 'none' },
+        metadata: { filter_id: 'satellite_layer' }
       }
       style[:layers] << {
-        id: "color-relief",
-        type: "color-relief",
+        id: 'color-relief',
+        type: 'color-relief',
         source: source_name,
-        layout: { visibility: "none" },
+        layout: { visibility: 'none' },
         paint: {
-          "color-relief-color": ["interpolate", ["linear"], ["elevation"],
+          "color-relief-color": ['interpolate', ['linear'], ['elevation'],
                                  # Sea depths
-                                 -1000, "rgba(0, 0, 139, 0.3)", -500, "rgba(0, 0, 205, 0.35)", -100, "rgba(0, 191, 255, 0.4)", -10, "rgba(135, 206, 235, 0.45)",
+                                 -1000, 'rgba(0, 0, 139, 0.3)', -500, 'rgba(0, 0, 205, 0.35)', -100, 'rgba(0, 191, 255, 0.4)', -10, 'rgba(135, 206, 235, 0.45)',
                                  # Lowlands (0-200m)
-                                 0, "rgba(34, 139, 34, 0.2)", 50, "rgba(50, 205, 50, 0.25)", 100, "rgba(144, 238, 144, 0.3)", 200, "rgba(154, 205, 50, 0.35)",
+                                 0, 'rgba(34, 139, 34, 0.2)', 50, 'rgba(50, 205, 50, 0.25)', 100, 'rgba(144, 238, 144, 0.3)', 200, 'rgba(154, 205, 50, 0.35)',
                                  # Uplands (200-500m)
-                                 300, "rgba(255, 255, 0, 0.4)", 400, "rgba(255, 215, 0, 0.45)", 500, "rgba(255, 165, 0, 0.5)",
+                                 300, 'rgba(255, 255, 0, 0.4)', 400, 'rgba(255, 215, 0, 0.45)', 500, 'rgba(255, 165, 0, 0.5)',
                                  # Low mountains (500-1000m)
-                                 600, "rgba(255, 140, 0, 0.55)", 800, "rgba(255, 69, 0, 0.6)", 1000, "rgba(255, 99, 71, 0.6)",
+                                 600, 'rgba(255, 140, 0, 0.55)', 800, 'rgba(255, 69, 0, 0.6)', 1000, 'rgba(255, 99, 71, 0.6)',
                                  # Medium mountains (1000-2000m)
-                                 1200, "rgba(205, 92, 92, 0.6)", 1500, "rgba(160, 82, 45, 0.65)", 1800, "rgba(139, 69, 19, 0.65)", 2000, "rgba(128, 0, 0, 0.7)",
+                                 1200, 'rgba(205, 92, 92, 0.6)', 1500, 'rgba(160, 82, 45, 0.65)', 1800, 'rgba(139, 69, 19, 0.65)', 2000, 'rgba(128, 0, 0, 0.7)',
                                  # High mountains (2000m+)
-                                 2500, "rgba(105, 105, 105, 0.7)", 3000, "rgba(64, 64, 64, 0.7)", 4000, "rgba(47, 79, 79, 0.7)", 5000, "rgba(25, 25, 112, 0.7)", 6000, "rgba(0, 0, 0, 0.7)"
-          ]
+                                 2500, 'rgba(105, 105, 105, 0.7)', 3000, 'rgba(64, 64, 64, 0.7)', 4000, 'rgba(47, 79, 79, 0.7)', 5000, 'rgba(25, 25, 112, 0.7)', 6000, 'rgba(0, 0, 0, 0.7)']
         },
-        metadata: { filter_id: "color_relief_layer" }
+        metadata: { filter_id: 'color_relief_layer' }
       }
       style[:layers] << {
-        id: "brown-relief",
-        type: "color-relief",
+        id: 'brown-relief',
+        type: 'color-relief',
         source: source_name,
-        layout: { visibility: "none" },
+        layout: { visibility: 'none' },
         paint: {
-          "color-relief-color": ["interpolate", ["linear"], ["elevation"],
+          "color-relief-color": ['interpolate', ['linear'], ['elevation'],
                                  # Sea level
-                                 -1, "rgba(255, 255, 255, 0.2)", 0, "rgba(255, 253, 244, 0.25)",
+                                 -1, 'rgba(255, 255, 255, 0.2)', 0, 'rgba(255, 253, 244, 0.25)',
                                  # Low elevations (0-91m)
-                                 91, "rgba(252, 255, 234, 0.3)",
+                                 91, 'rgba(252, 255, 234, 0.3)',
                                  # Medium elevations (305-610m)
-                                 305, "rgba(252, 249, 216, 0.4)", 610, "rgba(251, 239, 181, 0.45)",
+                                 305, 'rgba(252, 249, 216, 0.4)', 610, 'rgba(251, 239, 181, 0.45)',
                                  # Higher elevations (914-1219m)
-                                 914, "rgba(253, 219, 121, 0.55)", 1219, "rgba(232, 173, 81, 0.6)",
+                                 914, 'rgba(253, 219, 121, 0.55)', 1219, 'rgba(232, 173, 81, 0.6)',
                                  # Mountain elevations (1524-1829m)
-                                 1524, "rgba(217, 142, 51, 0.6)", 1829, "rgba(181, 93, 22, 0.65)",
+                                 1524, 'rgba(217, 142, 51, 0.6)', 1829, 'rgba(181, 93, 22, 0.65)',
                                  # High mountains (2438-3048m)
-                                 2438, "rgba(156, 73, 19, 0.65)", 3048, "rgba(147, 62, 21, 0.7)",
+                                 2438, 'rgba(156, 73, 19, 0.65)', 3048, 'rgba(147, 62, 21, 0.7)',
                                  # Very high mountains (4572-9144m)
-                                 4572, "rgba(121, 49, 11, 0.7)", 9144, "rgba(0, 0, 4, 0.7)"
-          ]
+                                 4572, 'rgba(121, 49, 11, 0.7)', 9144, 'rgba(0, 0, 4, 0.7)']
         },
-        metadata: { filter_id: "brown_relief_layer" }
+        metadata: { filter_id: 'brown_relief_layer' }
       }
       style[:layers] << {
-        id: "hillshade",
-        type: "hillshade",
+        id: 'hillshade',
+        type: 'hillshade',
         source: hillshade_source,
-        layout: { visibility: "none" },
+        layout: { visibility: 'none' },
         paint: {
-          "hillshade-shadow-color": "#473B24",
-          "hillshade-highlight-color": "#FFFFFF",
-          "hillshade-accent-color": "#CCAA88"
+          "hillshade-shadow-color": '#473B24',
+          "hillshade-highlight-color": '#FFFFFF',
+          "hillshade-accent-color": '#CCAA88'
         },
-        metadata: { filter_id: "hillshade_layer" }
+        metadata: { filter_id: 'hillshade_layer' }
+      }
+      style[:sources]["#{source_name}_contours"] = {
+        type: 'vector',
+        tiles: ["#{source_name}_contour_protocol://{z}/{x}/{y}"],
+        maxzoom: 15
+      }
+      style[:layers] << {
+        id: 'contours',
+        type: 'line',
+        source: "#{source_name}_contours",
+        "source-layer": 'contours',
+        layout: { visibility: 'none' },
+        paint: {
+          "line-color": ['match', %w[get level], 1, '#4A4A4A', '#8A8A8A'],
+          "line-width": ['match', %w[get level], 1, 1.5, 0.8],
+          "line-opacity": 0.7
+        },
+        metadata: { filter_id: 'contour_layer' }
+      }
+      style[:layers] << {
+        id: 'contour-labels',
+        type: 'symbol',
+        source: "#{source_name}_contours",
+        "source-layer": 'contours',
+        filter: ['>', %w[get level], 0],
+        layout: {
+          visibility: 'none',
+          "symbol-placement": 'line',
+          "text-size": 10,
+          "text-field": ['concat', ['number-format', %w[get ele], {}], 'm'],
+          "text-font": ['Noto Sans Bold']
+        },
+        paint: {
+          "text-color": '#333333',
+          "text-halo-color": '#ffffff',
+          "text-halo-width": 1.5
+        },
+        metadata: { filter_id: 'contour_layer' }
       }
       style[:terrain] = {
         source: source_name,
-        exaggeration: ["interpolate", ["linear"], ["zoom"], 0, 0.5, 6, 1.0, 10, 1.5, 14, 1.2, 18, 1.0]
+        exaggeration: ['interpolate', ['linear'], ['zoom'], 0, 0.5, 6, 1.0, 10, 1.5, 14, 1.2, 18, 1.0]
       }
     else
       style[:layers] << {
         id: source_name.downcase,
-        type: "raster",
+        type: 'raster',
         source: source_name,
-        layout: { visibility: "visible" },
-        paint: { "raster-resampling": "linear" },
+        layout: { visibility: 'visible' },
+        paint: { "raster-resampling": 'linear' },
         metadata: { filter_id: source_name.downcase }
       }
     end

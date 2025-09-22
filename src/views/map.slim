@@ -81,6 +81,7 @@ javascript:
     let profilePoints = [];
     let profileLine = null;
     let currentProfile = null;
+    let contourManager = null;
 
     const toDomId = (prefix, id) => `${prefix}-${String(id).replace(/[^a-zA-Z0-9_-]/g, '_')}`;
 
@@ -276,6 +277,11 @@ javascript:
         }
     };
 
+    const initializeContourManager = () => {
+        contourManager = new ContourManager({ map });
+        contourManager.init();
+    };
+
     const onStyleReady = () => {
         const hasTerrain = currentStyle?.terrain;
         const projectionType = hasTerrain ? 'mercator' : 'globe';
@@ -297,6 +303,8 @@ javascript:
             map.addControl(new maplibregl.TerrainControl({
                 source: terrainSourceName
             }), 'top-right');
+            
+            initializeContourManager();
         }
 
         updateTerrainIndicator();
