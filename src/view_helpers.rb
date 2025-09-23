@@ -71,8 +71,7 @@ module ViewHelpers
 
     style = {
       version: 8,
-      name: "#{source_name} Map",
-      glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
+      name: "#{source_name.gsub('_', ' ')} Map",
       sources: {
         source_name => {
           type: is_terrain ? 'raster-dem' : 'raster',
@@ -82,8 +81,11 @@ module ViewHelpers
           maxzoom: route[:maxzoom] || 20
         }
       },
-      layers: []
+      layers: [],
+      sprite: 'https://www.example.com/sprite/basemap'
     }
+
+    style[:glyphs] = 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf' if is_terrain
     style[:sources][source_name][:bounds] = bounds if bounds
 
     if is_terrain
@@ -101,10 +103,12 @@ module ViewHelpers
       }
     else
       style[:metadata] = {
-        filters: { source_name.downcase => [{ id: source_name.downcase }] },
-        locale: { 'en' => { source_name.downcase => source_name.gsub('_', ' ') } }
+        filters: { 'background' => [{ id: 'background' }] },
+        locale: { 'en' => { 'background' => source_name.gsub('_', ' ') } }
       }
     end
+    
+    style[:metadata][:baseMap] = { previewImg: source_name.downcase }
 
     if is_terrain
       style[:sources][source_name][:encoding] = encoding
@@ -243,7 +247,7 @@ module ViewHelpers
         source: source_name,
         layout: { visibility: 'visible' },
         paint: { "raster-resampling": 'linear' },
-        metadata: { filter_id: source_name.downcase }
+        metadata: { filter_id: 'background' }
       }
     end
 
