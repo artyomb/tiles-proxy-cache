@@ -71,7 +71,7 @@ module ViewHelpers
 
     style = {
       version: 8,
-      name: "#{source_name.gsub('_', ' ')} Map",
+      name: "#{source_name.gsub('_', ' ')}",
       sources: {
         source_name => {
           type: is_terrain ? 'raster-dem' : 'raster',
@@ -81,8 +81,7 @@ module ViewHelpers
           maxzoom: route[:maxzoom] || 20
         }
       },
-      layers: [],
-      sprite: 'https://www.example.com/sprite/basemap'
+      layers: []
     }
 
     style[:glyphs] = 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf' if is_terrain
@@ -98,17 +97,17 @@ module ViewHelpers
           { id: 'contour_layer' },
           { id: 'satellite_layer' }
         ] },
-        locale: { 'en' => { source_name.downcase =>
+        locale: { 'en-US' => { source_name.downcase =>
                               source_name.gsub('_', ' '), 'color_relief_layer' => 'Color Relief', 'brown_relief_layer' => 'Brown Relief', 'hillshade_layer' => 'Hillshade', 'contour_layer' => 'Contour Lines', 'satellite_layer' => 'Satellite' } }
       }
     else
       style[:metadata] = {
         filters: { 'background' => [{ id: 'background' }] },
-        locale: { 'en' => { 'background' => source_name.gsub('_', ' ') } }
+        locale: { 'en-US' => { 'background' => source_name.gsub('_', ' ') } }
       }
     end
     
-    style[:metadata][:baseMap] = { previewImg: source_name.downcase }
+    style[:metadata][:baseMap] = { type: is_terrain ? 'dem' : 'background' }
 
     if is_terrain
       style[:sources][source_name][:encoding] = encoding
