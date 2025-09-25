@@ -237,7 +237,7 @@ module ViewHelpers
       }
       style[:terrain] = {
         source: source_name,
-        exaggeration: ['interpolate', ['linear'], ['zoom'], 0, 0.5, 6, 1.0, 10, 1.5, 14, 1.2, 18, 1.0]
+        exaggeration: 1.5
       }
     else
       style[:layers] << {
