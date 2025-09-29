@@ -15,6 +15,9 @@ gem 'falcon'
 gem 'stack-service-base'
 #, path: '/home/user/projects/stack-service-base'
 
+gem 'maplibre-preview'
+#, path: '/home/user/projects/maplibre-preview'
+
 gem 'ffi'
 gem 'chunky_png'
 gem 'faraday'

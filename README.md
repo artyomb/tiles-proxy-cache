@@ -15,7 +15,7 @@ A high-performance tile caching proxy service that provides intelligent tile cac
 - **LERC Format Support**: Native support for ArcGIS LERC (Limited Error Raster Compression) format with automatic conversion to Mapbox Terrain-RGB PNG
 - **DEM Data Processing**: Specialized handling of Digital Elevation Model data with support for Terrarium and Mapbox RGB encoding
 - **Advanced Error Handling**: Intelligent miss tracking with customizable error tiles for different HTTP status codes
-- **Interactive Web Interface**: Real-time statistics, coverage analysis, interactive map preview with 3D terrain support
+- **Interactive Web Interface**: Real-time statistics, coverage analysis, maplibre-preview integration for map preview
 - **Performance Optimization**: WAL mode SQLite, connection pooling, memory-mapped I/O, and Ruby JIT compilation
 - **GOST Cryptography**: Built-in support for GOST cryptographic algorithms for enhanced security
 - **Docker Ready**: Containerized deployment with volume mounting for configuration and data persistence
@@ -31,7 +31,7 @@ The service consists of several integrated components:
 - **[Database Manager](src/database_manager.rb)** - SQLite database optimization and MBTiles schema management
 - **[Metadata Manager](src/metadata_manager.rb)** - Configurable or automatic format detection and metadata initialization
 - **[LERC Extension](src/ext/lerc_extension.cpp)** - C++ extension for LERC format decoding and Mapbox Terrain-RGB conversion
-- **[Monitoring Interface](src/views/)** - Web-based dashboard with interactive map preview and 3D terrain support
+- **[Monitoring Interface](src/views/)** - Web-based dashboard with maplibre-preview integration
 
 ### Data Flow
 
@@ -191,7 +191,7 @@ LERC_Elevation:
 | `/` | GET | Dashboard with service statistics | HTML interface |
 | `/api/stats` | GET | JSON statistics for all sources | JSON data |
 | `/db?source=name` | GET | Database viewer for specific source | HTML table view |
-| `/map?source=name` | GET | Interactive map preview with 3D terrain support | HTML map interface |
+| `/map?source=name` | GET | Map preview via maplibre-preview integration | HTML map interface |
 | `/admin/vacuum` | GET | Database maintenance (VACUUM operation) | JSON status |
 | `/{path}` | GET | MapLibre style for source | JSON style |
 
@@ -298,8 +298,6 @@ src/
 ├── views/                    # Web interface templates
 │   ├── index.slim           # Main dashboard
 │   ├── database.slim        # Database browser
-│   ├── map.slim             # Interactive map with 3D terrain
-│   ├── map_layout.slim      # Map-specific layout
 │   └── layout.slim          # Base layout
 ├── assets/
 │   └── error_tiles/         # Error tile images
@@ -409,7 +407,7 @@ The web interface provides comprehensive monitoring:
 - **Service Statistics**: Total sources, cached tiles, cache size, uptime
 - **Per-Source Metrics**: Cache hits/misses, coverage percentage, database size
 - **Coverage Visualization**: D3.js charts showing tile coverage per zoom level
-- **Interactive Maps**: MapLibre-based preview with 3D terrain support and elevation profiles
+- **Interactive Maps**: MapLibre-based preview via maplibre-preview gem integration
 - **Database Browser**: Direct SQLite data inspection and querying with VACUUM operations
 - **Performance Monitoring**: Real-time FPS, memory usage, and tile loading metrics
 - **Layer Management**: Dynamic layer visibility controls and filter systems
