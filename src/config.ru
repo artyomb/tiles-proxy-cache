@@ -4,11 +4,14 @@ require 'faraday'
 require 'faraday/retry'
 require 'faraday/net_http_persistent'
 require 'stack-service-base'
+require 'maplibre-preview'
 require 'yaml'
 require_relative 'view_helpers'
 require_relative 'metadata_manager'
 require_relative 'background_tile_loader'
 require_relative 'database_manager'
+
+register MapLibrePreview::Extension
 
 StackServiceBase.rack_setup self
 
@@ -73,10 +76,12 @@ end
 get "/map" do
   if params[:source]
     _, route = validate_and_get_route(params[:source])
-    @style_url = "#{request.base_url}#{route[:path].gsub(/\/:[zxy]/, '')}"
-    @style_url += "?debug=true" if params[:debug] == 'true'
+    style_url = "#{request.base_url}#{route[:path].gsub(/\/:[zxy]/, '')}"
+    style_url += "?debug=true" if params[:debug] == 'true'
+    
+    params[:style_url] = style_url
   end
-  slim(:map, layout: :map_layout)
+  render_maplibre_preview
 end
 
 
