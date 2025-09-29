@@ -28,6 +28,8 @@ World_Imagery:
     bounds: "-180,-85.0511,180,85.0511"
     center: "0,0,3"
     type: "baselayer"  # baselayer | overlay
+  style_metadata:
+    base_map: {type: "background"}  # base | dem | background | solid
   autoscan:
     enabled: false
     daily_limit: 5000
@@ -57,6 +59,8 @@ Terrain_DEM:
     center: "0,0,4"
     type: "overlay"
     encoding: "terrarium"
+  style_metadata:
+    base_map: {type: "dem"}  # base | dem | background | solid
   autoscan:
     enabled: false
     daily_limit: 10000
@@ -85,6 +89,8 @@ OSM:
     bounds: "-180,-85.0511,180,85.0511"
     center: "0,0,4"
     type: "baselayer"  # baselayer | overlay
+  style_metadata:
+    base_map: {type: "background"}  # base | dem | background | solid
   autoscan:
     enabled: true
     daily_limit: 10000
@@ -106,6 +112,8 @@ CartoDB_Positron:
     bounds: "-180,-85.0511,180,85.0511"
     center: "0,0,3"
     type: "baselayer"  # baselayer | overlay
+  style_metadata:
+    base_map: {type: "background"}  # base | dem | background | solid
 
 # Custom service with authentication
 Custom_Service:
@@ -132,6 +140,8 @@ Custom_Service:
     bounds: "-180,-85.0511,180,85.0511"
     center: "0,0,5"
     type: "baselayer"  # baselayer | overlay
+  style_metadata:
+    base_map: {type: "solid"}  # base | dem | background | solid
 
 # High-resolution tiles service
 High_Res_Tiles:
@@ -156,6 +166,8 @@ High_Res_Tiles:
     bounds: "-180,-85.0511,180,85.0511"
     center: "0,0,3"
     type: "baselayer"  # baselayer | overlay
+  style_metadata:
+    base_map: {type: "solid"}  # base | dem | background | solid
 
 # LERC elevation data service
 LERC_Elevation:
@@ -181,6 +193,8 @@ LERC_Elevation:
     center: "0,0,4"
     type: "overlay"       # baselayer | overlay
     encoding: "mapbox"    # Output format for MapLibre compatibility
+  style_metadata:
+    base_map: {type: "dem"}  # base | dem | background | solid
   autoscan:
     enabled: false
     daily_limit: 5000

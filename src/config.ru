@@ -18,7 +18,7 @@ CONFIG_FOLDER = ENV['RACK_ENV'] == 'production' ? '/configs' : "#{__dir__}/confi
 
 ROUTES = Dir["#{CONFIG_FOLDER}/*.{yaml,yml}"].map { YAML.load_file(_1, symbolize_names: true) }.reduce({}, :merge)
 
-SAFE_KEYS = %i[path target minzoom maxzoom mbtiles_file miss_timeout miss_max_records metadata autoscan]
+SAFE_KEYS = %i[path target minzoom maxzoom mbtiles_file miss_timeout miss_max_records metadata style_metadata autoscan]
 DB_SAFE_KEYS = SAFE_KEYS + %i[db]
 
 require_relative 'ext/lerc_extension'

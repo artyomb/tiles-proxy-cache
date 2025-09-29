@@ -107,7 +107,7 @@ module ViewHelpers
       }
     end
     
-    style[:metadata][:baseMap] = { type: is_terrain ? 'dem' : 'background' }
+    style[:metadata][:base_map] = { type: route.dig(:style_metadata, :base_map, :type) }
 
     if is_terrain
       style[:sources][source_name][:encoding] = encoding
