@@ -81,7 +81,7 @@ get "/map" do
     
     params[:style_url] = style_url
   end
-  render_maplibre_preview
+  slim :maplibre_map, layout: :maplibre_layout
 end
 
 
