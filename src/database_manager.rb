@@ -72,6 +72,8 @@ module DatabaseManager
       Integer :tile_row,    null:false
       File    :tile_data,   null:false
       unique [:zoom_level,:tile_column,:tile_row], name: :tile_index
+      index :zoom_level, name: :idx_tiles_zoom_level
+      index [:zoom_level, Sequel.function(:length, :tile_data)], name: :idx_tiles_zoom_size
     }
     db.create_table?(:misses){ 
       Integer :z; Integer :x; Integer :y; Integer :ts
