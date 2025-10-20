@@ -139,24 +139,36 @@ class BackgroundTileLoader
 
     begin
       response = @route[:client].get(target_url, nil, headers)
+      return false unless response.success? && response.body.size > 100
 
-      if response.success? && response.body.size > 100
-        @route[:db][:tiles].insert_conflict(
-          target: [:zoom_level, :tile_column, :tile_row],
-          update: { tile_data: Sequel[:excluded][:tile_data] }
-        ).insert(
-          zoom_level: z,
-          tile_column: x,
-          tile_row: tms_y(z, y),
-          tile_data: Sequel.blob(response.body)
-        )
-        true
-      else
-        LOGGER.debug("Failed to fetch tile #{z}/#{x}/#{y}: status=#{response.status}")
-        false
+      data = response.body
+      if @route[:source_format] == 'lerc'
+        return false if response.headers['content-type']&.include?('text/html')
+        begin
+          decoded = LercFFI.lerc_to_mapbox_png(data)
+          unless decoded
+            LOGGER.warn("LERC decode failed for #{z}/#{x}/#{y}")
+            return false
+          end
+          data = decoded
+        rescue => e
+          LOGGER.warn("LERC decode error for #{z}/#{x}/#{y}: #{e}")
+          return false
+        end
       end
+
+      @route[:db][:tiles].insert_conflict(
+        target: [:zoom_level, :tile_column, :tile_row],
+        update: { tile_data: Sequel[:excluded][:tile_data] }
+      ).insert(
+        zoom_level: z,
+        tile_column: x,
+        tile_row: tms_y(z, y),
+        tile_data: Sequel.blob(data)
+      )
+      true
     rescue => e
-      LOGGER.warn("Error fetching tile #{z}/#{x}/#{y}: #{e}")
+      LOGGER.warn("Background fetch error for #{z}/#{x}/#{y}: #{e}")
       false
     end
   end
