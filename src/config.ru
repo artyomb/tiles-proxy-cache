@@ -298,6 +298,16 @@ helpers do
   def build_error_details(response, error)
     details = [error]
     
+    if defined?(request) && request
+      request_headers = request.env.select { |k, v| k.start_with?('HTTP_') }
+                                .transform_keys { |k| k[5..-1].tr('_', '-').split('-').map(&:capitalize).join('-') }
+                                .reject { |k, v| %w[Host Connection Content-Length].include?(k) }
+      details << "Request headers: #{request_headers.map { |k, v| "#{k}=#{v}" }.join(', ')}" if request_headers.any?
+    end
+    
+    response_headers = response.headers.select { |k, v| %w[content-type content-length server date].include?(k.downcase) }
+    details << "Response headers: #{response_headers.map { |k, v| "#{k}=#{v}" }.join(', ')}" if response_headers.any?
+    
     if response.body && !response.body.empty?
       body_preview = response.body.force_encoding('UTF-8').strip[0, 200]
       body_preview += "..." if response.body.length > 200
