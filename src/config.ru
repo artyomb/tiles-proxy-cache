@@ -307,6 +307,8 @@ helpers do
     details.join(' | ')
   end
 
+  otl_def :build_error_details
+
   def build_request_headers
     skip_headers = %w[host connection proxy-connection content-length if-none-match if-modified-since]
 
