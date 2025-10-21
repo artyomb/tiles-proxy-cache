@@ -320,7 +320,7 @@ helpers do
   otl_def :build_error_details
 
   def build_request_headers
-    skip_headers = %w[connection proxy-connection content-length if-none-match if-modified-since]
+    skip_headers = %w[host connection proxy-connection content-length if-none-match if-modified-since]
 
     headers = request.env.filter_map do |key, value|
       next unless key.start_with?('HTTP_')
