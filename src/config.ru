@@ -259,7 +259,7 @@ helpers do
     data = response.body
     if route[:source_format] == "lerc" && data && !data.empty?
       if response.headers['content-type']&.include?('text/html')
-        return { error: true, reason: 'arcgis_html_error', details: 'ArcGIS returned HTML error page', status: 404, body: data }
+        return { error: true, reason: 'arcgis_html_error', details: build_error_details(response, "ArcGIS returned HTML error page"), status: 404, body: data }
       end
       
       begin
@@ -268,10 +268,10 @@ helpers do
           headers['Content-Type'] = 'image/png'
           data = decoded_data
         else
-          return { error: true, reason: 'lerc_decode_failed', details: 'Failed to decode LERC data', status: 500, body: data }
+          return { error: true, reason: 'lerc_decode_failed', details: build_error_details(response, "Failed to decode LERC data"), status: 500, body: data }
         end
       rescue => e
-        return { error: true, reason: 'lerc_decode_error', details: e.message, status: 500, body: data }
+        return { error: true, reason: 'lerc_decode_error', details: build_error_details(response, "LERC decode error: #{e.message}"), status: 500, body: data }
       end
     end
     
@@ -290,8 +290,21 @@ helpers do
 
   def handle_response_error(response, route, z, x, y)
     error = validate_response(response, route)
+    details = build_error_details(response, error)
     LOGGER.info("fetch_http error: #{error} (status: #{response.status}, source: #{route[:target]}, tile: #{z}/#{x}/#{y})")
-    { error: true, reason: 'fetch_error', details: error, status: response.status, body: response.body }
+    { error: true, reason: 'fetch_error', details: details, status: response.status, body: response.body }
+  end
+
+  def build_error_details(response, error)
+    details = [error]
+    
+    if response.body && !response.body.empty?
+      body_preview = response.body.force_encoding('UTF-8').strip[0, 200]
+      body_preview += "..." if response.body.length > 200
+      details << body_preview
+    end
+    
+    details.join(' | ')
   end
 
   def build_request_headers
