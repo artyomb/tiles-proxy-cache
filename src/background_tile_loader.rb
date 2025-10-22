@@ -139,7 +139,7 @@ class BackgroundTileLoader
 
     begin
       response = @route[:client].get(target_url, nil, headers)
-      return false unless response.success? && response.body.size > 100
+      return false unless response.success?
 
       data = response.body
       if @route[:source_format] == 'lerc'
@@ -153,6 +153,12 @@ class BackgroundTileLoader
           data = decoded
         rescue => e
           LOGGER.warn("LERC decode error for #{z}/#{x}/#{y}: #{e}")
+          return false
+        end
+      else
+        content_type = response.headers['content-type']
+        unless content_type&.include?('image/')
+          LOGGER.warn("Invalid content-type for #{z}/#{x}/#{y}: #{content_type}")
           return false
         end
       end

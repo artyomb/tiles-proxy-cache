@@ -283,7 +283,6 @@ helpers do
     
     return nil if route[:source_format] == "lerc"
     
-    return "Response size: #{response.body.size} bytes" if response.body.size < 100
     return "Content-Type: #{response.headers['content-type']}" unless response.headers['content-type']&.include?('image/')
     nil
   end
