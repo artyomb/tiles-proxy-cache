@@ -34,12 +34,15 @@ extern "C" VALUE lerc_to_mapbox_png(VALUE /*self*/, VALUE lerc_data) {
         const int nCols = static_cast<int>(info[3]);
         const int nRows = static_cast<int>(info[4]);
         const int nBands= static_cast<int>(info[5]);
+        const int nValidPixels = static_cast<int>(info[6]);
         const int type  = static_cast<int>(info[1]);
 
         if (nCols <= 0 || nRows <= 0 || nBands <= 0)
             rb_raise(rb_eRuntimeError, "Invalid LERC dimensions: %dx%dx%d", nCols, nRows, nBands);
         if (type != DT_FLOAT)
             rb_raise(rb_eRuntimeError, "Unsupported LERC data type: %d (expected %d)", type, DT_FLOAT);
+        if (nValidPixels <= 0)
+            return Qnil;
 
         const std::size_t total = static_cast<std::size_t>(nCols) * nRows * nBands;
         std::vector<float> elev;

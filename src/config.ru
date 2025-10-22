@@ -24,8 +24,6 @@ ROUTES = Dir["#{CONFIG_FOLDER}/*.{yaml,yml}"].map { YAML.load_file(_1, symbolize
 SAFE_KEYS = %i[path target minzoom maxzoom mbtiles_file miss_timeout miss_max_records metadata style_metadata autoscan]
 DB_SAFE_KEYS = SAFE_KEYS + %i[db]
 
-LERC_EMPTY_TILE_MAX_SIZE = 67
-
 require_relative 'ext/lerc_extension'
 
 get "/" do
@@ -244,18 +242,14 @@ helpers do
         return { error: true, reason: 'arcgis_html_error', details: build_error_details(response, "ArcGIS returned HTML error page"), status: 404, body: data }
       end
       
-      if data.bytesize <= LERC_EMPTY_TILE_MAX_SIZE
-        return { error: true, reason: 'arcgis_nodata', details: build_error_details(response, "ArcGIS returned empty LERC tile (#{data.bytesize} bytes)"), status: 404, body: data }
-      end
-      
       begin
         decoded_data = LercFFI.lerc_to_mapbox_png(data)
-        if decoded_data
-          headers['Content-Type'] = 'image/png'
-          data = decoded_data
-        else
-          return { error: true, reason: 'lerc_decode_failed', details: build_error_details(response, "Failed to decode LERC data"), status: 500, body: data }
+        if decoded_data.nil?
+          return { error: true, reason: 'arcgis_nodata', details: build_error_details(response, "LERC tile has no valid pixels (empty tile)"), status: 404, body: data }
         end
+        
+        headers['Content-Type'] = 'image/png'
+        data = decoded_data
       rescue => e
         return { error: true, reason: 'lerc_decode_error', details: build_error_details(response, "LERC decode error: #{e.message}"), status: 500, body: data }
       end

@@ -152,17 +152,11 @@ class BackgroundTileLoader
           return false
         end
         
-        if data.bytesize <= LERC_EMPTY_TILE_MAX_SIZE
-          DatabaseManager.record_miss(@route, z, x, y, 'arcgis_nodata', "ArcGIS returned empty LERC tile (#{data.bytesize} bytes)", 404, data)
-          LOGGER.debug("Skipping empty LERC tile #{z}/#{x}/#{y} (#{data.bytesize} bytes)")
-          return false
-        end
-        
         begin
           decoded = LercFFI.lerc_to_mapbox_png(data)
-          unless decoded
-            DatabaseManager.record_miss(@route, z, x, y, 'lerc_decode_failed', 'Failed to decode LERC data', 500, data)
-            LOGGER.warn("LERC decode failed for #{z}/#{x}/#{y}")
+          if decoded.nil?
+            DatabaseManager.record_miss(@route, z, x, y, 'arcgis_nodata', 'LERC tile has no valid pixels (empty tile)', 404, data)
+            LOGGER.debug("Skipping empty LERC tile #{z}/#{x}/#{y} (no valid pixels)")
             return false
           end
           data = decoded
