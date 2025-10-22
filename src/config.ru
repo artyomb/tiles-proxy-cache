@@ -24,6 +24,8 @@ ROUTES = Dir["#{CONFIG_FOLDER}/*.{yaml,yml}"].map { YAML.load_file(_1, symbolize
 SAFE_KEYS = %i[path target minzoom maxzoom mbtiles_file miss_timeout miss_max_records metadata style_metadata autoscan]
 DB_SAFE_KEYS = SAFE_KEYS + %i[db]
 
+LERC_EMPTY_TILE_MAX_SIZE = 67
+
 require_relative 'ext/lerc_extension'
 
 get "/" do
@@ -199,7 +201,7 @@ helpers do
       result = fetch_http(route:, x: x, y: y, z: z)
 
       if result[:error]
-        record_miss(route, z, x, y, result[:reason], result[:details], result[:status], result[:body])
+        DatabaseManager.record_miss(route, z, x, y, result[:reason], result[:details], result[:status], result[:body])
         return nil
       end
 
@@ -221,26 +223,6 @@ helpers do
     miss&.[](:status)
   end
 
-  def cleanup_misses_if_needed(route)
-    max_records = route[:miss_max_records] || 10000
-    return unless route[:db][:misses].count > max_records
-
-    keep_count = (max_records * 0.8).to_i
-    route[:db][:misses].reverse(:ts).offset(keep_count).delete
-  end
-
-  def record_miss(route, z, x, y, reason, details, status, body)
-    route[:db][:misses].where(z: z, x: x, y: y).delete
-
-    route[:db][:misses].insert(
-      z: z, x: x, y: y, ts: Time.now.to_i,
-      reason: reason, details: details, status: status,
-      response_body: Sequel.blob(body || '')
-    )
-
-    cleanup_misses_if_needed(route)
-  end
-
   def fetch_http(route:, x:, y:, z:)
     target_path = route[:target].gsub('{z}', z.to_s)
                                 .gsub('{x}', x.to_s)
@@ -260,6 +242,10 @@ helpers do
     if route[:source_format] == "lerc" && data && !data.empty?
       if response.headers['content-type']&.include?('text/html')
         return { error: true, reason: 'arcgis_html_error', details: build_error_details(response, "ArcGIS returned HTML error page"), status: 404, body: data }
+      end
+      
+      if data.bytesize <= LERC_EMPTY_TILE_MAX_SIZE
+        return { error: true, reason: 'arcgis_nodata', details: build_error_details(response, "ArcGIS returned empty LERC tile (#{data.bytesize} bytes)"), status: 404, body: data }
       end
       
       begin
@@ -294,16 +280,19 @@ helpers do
     { error: true, reason: 'fetch_error', details: details, status: response.status, body: response.body }
   end
 
-  def build_error_details(response, error)
+  def build_error_details(response, error, include_body: true)
     details = [error]
     
     response_headers = response.headers.select { |k, v| %w[content-type content-length server date].include?(k.downcase) }
     details << "Response headers: #{response_headers.map { |k, v| "#{k}=#{v}" }.join(', ')}" if response_headers.any?
     
-    if response.body && !response.body.empty?
-      body_preview = response.body.force_encoding('UTF-8').strip[0, 200]
-      body_preview += "..." if response.body.length > 200
-      details << body_preview
+    if include_body && response.body && !response.body.empty?
+      content_type = response.headers['content-type'] || ''
+      unless content_type.include?('octet-stream') || content_type.include?('image/')
+        body_preview = response.body.force_encoding('UTF-8').strip[0, 200]
+        body_preview += "..." if response.body.length > 200
+        details << body_preview
+      end
     end
     
     details.join(' | ')

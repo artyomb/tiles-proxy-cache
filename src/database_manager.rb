@@ -50,6 +50,26 @@ module DatabaseManager
     end
   end
 
+  def record_miss(route, z, x, y, reason, details, status, body)
+    route[:db][:misses].where(z: z, x: x, y: y).delete
+
+    route[:db][:misses].insert(
+      z: z, x: x, y: y, ts: Time.now.to_i,
+      reason: reason, details: details, status: status,
+      response_body: Sequel.blob(body || '')
+    )
+
+    cleanup_misses_if_needed(route)
+  end
+
+  def cleanup_misses_if_needed(route)
+    max_records = route[:miss_max_records] || 10000
+    return unless route[:db][:misses].count > max_records
+
+    keep_count = (max_records * 0.8).to_i
+    route[:db][:misses].reverse(:ts).offset(keep_count).delete
+  end
+
   private
 
   def configure_sqlite_pragmas(db)

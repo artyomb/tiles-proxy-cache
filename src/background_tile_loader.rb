@@ -139,25 +139,42 @@ class BackgroundTileLoader
 
     begin
       response = @route[:client].get(target_url, nil, headers)
-      return false unless response.success?
+      
+      unless response.success?
+        DatabaseManager.record_miss(@route, z, x, y, 'http_error', "HTTP #{response.status}", response.status, response.body)
+        return false
+      end
 
       data = response.body
       if @route[:source_format] == 'lerc'
-        return false if response.headers['content-type']&.include?('text/html')
+        if response.headers['content-type']&.include?('text/html')
+          DatabaseManager.record_miss(@route, z, x, y, 'arcgis_html_error', 'ArcGIS returned HTML error page', 404, data)
+          return false
+        end
+        
+        if data.bytesize <= LERC_EMPTY_TILE_MAX_SIZE
+          DatabaseManager.record_miss(@route, z, x, y, 'arcgis_nodata', "ArcGIS returned empty LERC tile (#{data.bytesize} bytes)", 404, data)
+          LOGGER.debug("Skipping empty LERC tile #{z}/#{x}/#{y} (#{data.bytesize} bytes)")
+          return false
+        end
+        
         begin
           decoded = LercFFI.lerc_to_mapbox_png(data)
           unless decoded
+            DatabaseManager.record_miss(@route, z, x, y, 'lerc_decode_failed', 'Failed to decode LERC data', 500, data)
             LOGGER.warn("LERC decode failed for #{z}/#{x}/#{y}")
             return false
           end
           data = decoded
         rescue => e
+          DatabaseManager.record_miss(@route, z, x, y, 'lerc_decode_error', "LERC decode error: #{e.message}", 500, data)
           LOGGER.warn("LERC decode error for #{z}/#{x}/#{y}: #{e}")
           return false
         end
       else
         content_type = response.headers['content-type']
         unless content_type&.include?('image/')
+          DatabaseManager.record_miss(@route, z, x, y, 'invalid_content_type', "Content-Type: #{content_type}", 200, data)
           LOGGER.warn("Invalid content-type for #{z}/#{x}/#{y}: #{content_type}")
           return false
         end
@@ -174,6 +191,7 @@ class BackgroundTileLoader
       )
       true
     rescue => e
+      DatabaseManager.record_miss(@route, z, x, y, 'fetch_error', "Background fetch error: #{e.message}", 500, nil)
       LOGGER.warn("Background fetch error for #{z}/#{x}/#{y}: #{e}")
       false
     end
