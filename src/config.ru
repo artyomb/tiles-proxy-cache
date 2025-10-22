@@ -248,7 +248,7 @@ helpers do
     
     target_path += "?#{URI.encode_www_form(route[:query_params])}" if route[:query_params]
 
-    headers = build_request_headers.merge((route[:headers]&.dig(:request) || {}).transform_keys(&:to_s))
+    headers = build_request_headers(route)
     response = route[:client].get(target_path, nil, headers)
 
     return handle_response_error(response, route, z, x, y) if (error = validate_response(response, route))
@@ -298,13 +298,6 @@ helpers do
   def build_error_details(response, error)
     details = [error]
     
-    if defined?(request) && request
-      request_headers = request.env.select { |k, v| k.start_with?('HTTP_') }
-                                .transform_keys { |k| k[5..-1].tr('_', '-').split('-').map(&:capitalize).join('-') }
-                                .reject { |k, v| %w[Host Connection Content-Length].include?(k) }
-      details << "Request headers: #{request_headers.map { |k, v| "#{k}=#{v}" }.join(', ')}" if request_headers.any?
-    end
-    
     response_headers = response.headers.select { |k, v| %w[content-type content-length server date].include?(k.downcase) }
     details << "Response headers: #{response_headers.map { |k, v| "#{k}=#{v}" }.join(', ')}" if response_headers.any?
     
@@ -319,16 +312,23 @@ helpers do
 
   otl_def :build_error_details
 
-  def build_request_headers
-    skip_headers = %w[host connection proxy-connection content-length if-none-match if-modified-since]
+  def build_request_headers(route)
+    base_headers = {
+      'Accept' => 'image/webp,image/apng,image/*,*/*;q=0.8',
+      'Accept-Language' => 'en-US,en;q=0.9,ru;q=0.8',
+      'Accept-Encoding' => 'gzip, deflate, br',
+      'DNT' => '1',
+      'Connection' => 'keep-alive',
+      'Upgrade-Insecure-Requests' => '1',
+      'Sec-Fetch-Dest' => 'image',
+      'Sec-Fetch-Mode' => 'no-cors',
+      'Sec-Fetch-Site' => 'cross-site',
+      'Cache-Control' => 'no-cache',
+      'Pragma' => 'no-cache'
+    }
 
-    headers = request.env.filter_map do |key, value|
-      next unless key.start_with?('HTTP_')
-      header = key[5..-1].tr('_', '-').split('-').map(&:capitalize).join('-')
-      [header, value] unless skip_headers.include?(header.downcase)
-    end.to_h
-
-    headers.merge('Cache-Control' => 'no-cache', 'Pragma' => 'no-cache')
+    config_headers = (route[:headers]&.dig(:request) || {}).transform_keys(&:to_s)
+    base_headers.merge(config_headers)
   end
 
   def build_response_headers(route, cache_status)
