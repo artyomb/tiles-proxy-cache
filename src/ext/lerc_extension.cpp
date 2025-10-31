@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <stdexcept>
+#include <cmath>
 
 extern "C" VALUE lerc_to_mapbox_png(VALUE /*self*/, VALUE lerc_data) {
     try {
@@ -71,7 +72,7 @@ extern "C" VALUE lerc_to_mapbox_png(VALUE /*self*/, VALUE lerc_data) {
             for (int x = 0; x < tw; ++x) {
                 const float e = elev_ptr[row + x];
                 const int32_t code = std::clamp(
-                    static_cast<int32_t>((e + MAPBOX_OFFSET) / MAPBOX_SCALE), 0, MAX_24BIT);
+                    static_cast<int32_t>(std::round((e + MAPBOX_OFFSET) / MAPBOX_SCALE)), 0, MAX_24BIT);
                 
                 *rgb_ptr++ = static_cast<std::uint8_t>((code >> 16) & 0xFF);
                 *rgb_ptr++ = static_cast<std::uint8_t>((code >> 8)  & 0xFF);
