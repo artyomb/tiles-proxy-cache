@@ -6,6 +6,9 @@ require 'faraday/net_http_persistent'
 require 'stack-service-base'
 require 'maplibre-preview'
 require 'yaml'
+require 'vips'
+require 'zlib'
+require 'stringio'
 require_relative 'view_helpers'
 require_relative 'metadata_manager'
 require_relative 'background_tile_loader'
@@ -237,6 +240,11 @@ helpers do
     copy_headers_from_response(response.headers)
     
     data = response.body
+    
+    if response.headers['content-encoding']&.include?('gzip')
+      data = Zlib::GzipReader.new(StringIO.new(data)).read rescue data
+    end
+    
     if route[:source_format] == "lerc" && data && !data.empty?
       if response.headers['content-type']&.include?('text/html')
         return { error: true, reason: 'arcgis_html_error', details: build_error_details(response, "ArcGIS returned HTML error page"), status: 404, body: data }
@@ -252,6 +260,15 @@ helpers do
         data = decoded_data
       rescue => e
         return { error: true, reason: 'lerc_decode_error', details: build_error_details(response, "LERC decode error: #{e.message}"), status: 500, body: data }
+      end
+    end
+    
+    if route[:webp_config] && route[:source_format] == 'png'
+      begin
+        data = convert_to_webp(data, route)
+        headers['Content-Type'] = 'image/webp'
+      rescue => e
+        return { error: true, reason: 'webp_conversion_error', details: build_error_details(response, "WebP conversion error: #{e.message}"), status: 500, body: data }
       end
     end
     
@@ -294,6 +311,14 @@ helpers do
 
   otl_def :build_error_details
 
+  def convert_to_webp(data, route)
+    webp_config = route[:webp_config]
+    lossless = webp_config[:lossless].nil? ? true : webp_config[:lossless]
+    params = lossless ? { lossless: true, effort: webp_config[:effort]} : { lossless: false, Q: webp_config[:quality]}
+    
+    Vips::Image.new_from_buffer(data, '').write_to_buffer('.webp', **params)
+  end
+
   def build_request_headers(route)
     base_headers = {
       'Accept' => 'image/webp,image/apng,image/*,*/*;q=0.8',
@@ -331,7 +356,7 @@ helpers do
   end
 
   def copy_headers_from_response(response_headers)
-    skip_headers = %w[connection proxy-connection transfer-encoding content-length]
+    skip_headers = %w[connection proxy-connection transfer-encoding content-length content-encoding]
     response_headers.each { |name, value| headers[name] = value unless skip_headers.include?(name.downcase) }
   end
 

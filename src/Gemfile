@@ -19,6 +19,7 @@ gem 'maplibre-preview'
 #, path: '/home/user/projects/maplibre-preview'
 
 gem 'ffi'
+gem 'ruby-vips'
 gem 'faraday'
 # gem 'faraday-net_http'  # or just rely on the default adapter
 gem 'faraday-retry'

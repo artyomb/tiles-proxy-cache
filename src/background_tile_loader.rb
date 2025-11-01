@@ -1,3 +1,7 @@
+require 'vips'
+require 'zlib'
+require 'stringio'
+
 class BackgroundTileLoader
   STRATEGIES = %w[grid human_like].freeze
 
@@ -146,6 +150,11 @@ class BackgroundTileLoader
       end
 
       data = response.body
+      
+      if response.headers['content-encoding']&.include?('gzip')
+        data = Zlib::GzipReader.new(StringIO.new(data)).read rescue data
+      end
+      
       if @route[:source_format] == 'lerc'
         if response.headers['content-type']&.include?('text/html')
           DatabaseManager.record_miss(@route, z, x, y, 'arcgis_html_error', 'ArcGIS returned HTML error page', 404, data)
@@ -170,6 +179,15 @@ class BackgroundTileLoader
         unless content_type&.include?('image/')
           DatabaseManager.record_miss(@route, z, x, y, 'invalid_content_type', "Content-Type: #{content_type}", 200, data)
           LOGGER.warn("Invalid content-type for #{z}/#{x}/#{y}: #{content_type}")
+          return false
+        end
+      end
+
+      if @route[:webp_config] && @route[:source_format] == 'png'
+        begin
+          data = convert_to_webp(data)
+        rescue => e
+          DatabaseManager.record_miss(@route, z, x, y, 'webp_conversion_error', "WebP conversion error: #{e.message}", 500, data)
           return false
         end
       end
@@ -274,6 +292,14 @@ class BackgroundTileLoader
 
   def tms_y(z, y)
     (1 << z) - 1 - y
+  end
+
+  def convert_to_webp(data)
+    webp_config = @route[:webp_config]
+    lossless = webp_config[:lossless].nil? ? true : webp_config[:lossless]
+    params = lossless ? { lossless: true, effort: webp_config[:effort]} : { lossless: false, Q: webp_config[:quality]}
+    
+    Vips::Image.new_from_buffer(data, '').write_to_buffer('.webp', **params)
   end
 
   def update_status(zoom_level, status)
