@@ -111,16 +111,6 @@ module ViewHelpers
 
     if is_terrain
       style[:sources][source_name][:encoding] = encoding
-      hillshade_source = "#{source_name}_hillshade"
-      style[:sources][hillshade_source] = {
-        type: 'raster-dem',
-        tiles: [tile_url],
-        tileSize: route[:tile_size],
-        minzoom: route[:minzoom] || 1,
-        maxzoom: route[:maxzoom] || 20,
-        encoding: encoding
-      }
-      style[:sources][hillshade_source][:bounds] = bounds if bounds
 
       base_maxzoom = [route[:maxzoom], 15].max.clamp(15, 18)
       style[:sources][:base] = { type: 'raster', tiles: ['https://mt1.google.com/vt/lyrs=p&x={x}&y={y}&z={z}'], tileSize: 256, maxzoom: base_maxzoom }
@@ -188,7 +178,7 @@ module ViewHelpers
       style[:layers] << {
         id: 'hillshade',
         type: 'hillshade',
-        source: hillshade_source,
+        source: source_name,
         layout: { visibility: 'none' },
         paint: {
           "hillshade-shadow-color": '#473B24',
