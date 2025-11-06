@@ -291,7 +291,7 @@ helpers do
     { error: true, reason: 'fetch_error', details: details, status: response.status, body: response.body }
   end
 
-  def build_error_details(response, error, include_body: true)
+  otl_def def build_error_details(response, error, include_body: true)
     details = [error]
     
     response_headers = response.headers.select { |k, v| %w[content-type content-length server date].include?(k.downcase) }
@@ -309,13 +309,12 @@ helpers do
     details.join(' | ')
   end
 
-  otl_def :build_error_details
-
-  def convert_to_webp(data, route)
+  otl_def def convert_to_webp(data, route)
     webp_config = route[:webp_config]
     lossless = webp_config[:lossless].nil? ? true : webp_config[:lossless]
     params = lossless ? { lossless: true, effort: webp_config[:effort]} : { lossless: false, Q: webp_config[:quality]}
-    
+
+    otl_current_span { _1.add_attributes params }
     Vips::Image.new_from_buffer(data, '').write_to_buffer('.webp', **params)
   end
 
