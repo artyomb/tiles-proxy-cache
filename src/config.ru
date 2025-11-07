@@ -251,7 +251,7 @@ helpers do
       end
       
       begin
-        decoded_data = LercFFI.lerc_to_mapbox_png(data)
+        decoded_data = otl_span("method: LercFFI.lerc_to_mapbox_png", {}) { LercFFI.lerc_to_mapbox_png(data) }
         if decoded_data.nil?
           return { error: true, reason: 'arcgis_nodata', details: build_error_details(response, "LERC tile has no valid pixels (empty tile)"), status: 404, body: data }
         end
