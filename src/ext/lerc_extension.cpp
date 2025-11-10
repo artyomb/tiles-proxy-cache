@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <stdexcept>
 #include <cmath>
+#include <climits>
 
 extern "C" VALUE lerc_to_mapbox_png(VALUE /*self*/, VALUE lerc_data) {
     try {
@@ -23,13 +24,15 @@ extern "C" VALUE lerc_to_mapbox_png(VALUE /*self*/, VALUE lerc_data) {
         constexpr float MAPBOX_OFFSET = 10000.0f;
         constexpr float MAPBOX_SCALE  = 0.1f;
         constexpr int32_t MAX_24BIT   = 16777215;
+        constexpr int ARCGIS_TILE_SIZE = 257;  // ArcGIS elevation tile standard size
+        constexpr int MAPBOX_TILE_SIZE = 256;  // Standard web tile size
 
         std::array<unsigned int, 11> info{};
         std::array<double, 3> ranges{};
         if (const int rc = lerc_getBlobInfo(blob, n, info.data(), ranges.data(),
                                             static_cast<int>(info.size()), static_cast<int>(ranges.size()));
             rc != LERC_OK) {
-            rb_raise(rb_eRuntimeError, "LERC getBlobInfo failed with code: %d", rc);
+            rb_raise(rb_eRuntimeError, "LERC getBlobInfo failed: code %d", rc);
         }
 
         const int nCols = static_cast<int>(info[3]);
@@ -45,24 +48,26 @@ extern "C" VALUE lerc_to_mapbox_png(VALUE /*self*/, VALUE lerc_data) {
         if (nValidPixels <= 0)
             return Qnil;
 
+        if (nCols > SIZE_MAX / nRows / nBands)
+            rb_raise(rb_eRuntimeError, "LERC dimensions too large: %dx%dx%d", nCols, nRows, nBands);
+
         const std::size_t total = static_cast<std::size_t>(nCols) * nRows * nBands;
-        std::vector<float> elev;
-        elev.reserve(total);
-        elev.resize(total);
+        std::vector<float> elev(total);
 
         if (const int rc = lerc_decode(blob, n, 0, nullptr, 1,
                                        nCols, nRows, nBands, type, elev.data());
             rc != LERC_OK) {
-            rb_raise(rb_eRuntimeError, "LERC decode failed with code: %d", rc);
+            rb_raise(rb_eRuntimeError, "LERC decode failed: code %d", rc);
         }
 
-        const int tw = (nCols == 257) ? 256 : nCols;
-        const int th = (nRows == 257) ? 256 : nRows;
+        const int tw = (nCols == ARCGIS_TILE_SIZE) ? MAPBOX_TILE_SIZE : nCols;
+        const int th = (nRows == ARCGIS_TILE_SIZE) ? MAPBOX_TILE_SIZE : nRows;
+        
+        if (tw > SIZE_MAX / th / 3u)
+            rb_raise(rb_eRuntimeError, "RGB buffer size too large: %dx%d", tw, th);
+        
         const std::size_t rgb_size = static_cast<std::size_t>(tw) * th * 3u;
-
-        std::vector<std::uint8_t> rgb;
-        rgb.reserve(rgb_size);
-        rgb.resize(rgb_size);
+        std::vector<std::uint8_t> rgb(rgb_size);
 
         const float* elev_ptr = elev.data();
         std::uint8_t* rgb_ptr = rgb.data();
