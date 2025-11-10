@@ -1,6 +1,6 @@
 FROM ruby:3.4.4-slim-bookworm AS base
 
-RUN apt update && apt --fix-missing install -y build-essential pkg-config libpq-dev curl cmake libssl-dev libengine-gost-openssl file libvips42 \
+RUN apt update && apt --fix-missing install -y build-essential pkg-config libpq-dev curl cmake libssl-dev libengine-gost-openssl file libvips42 libyaml-dev \
      && rm -rf /var/lib/apt/lists/*
 
 # Build LERC from source (v4.0.0)
@@ -35,7 +35,7 @@ FROM base AS tests
 RUN bundle exec rspec
 
 FROM ruby:3.4.4-slim-bookworm AS deploy
-RUN apt update && apt install --fix-missing -y bash curl libssl-dev libengine-gost-openssl bash curl wget libpq-dev file libvips42 \
+RUN apt update && apt install --fix-missing -y bash curl libssl-dev libengine-gost-openssl bash curl wget libpq-dev file libvips42 libyaml-dev \
      && rm -rf /var/lib/apt/lists/*
 
 COPY --from=base /usr/local/bundle /usr/local/bundle
