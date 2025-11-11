@@ -1,6 +1,7 @@
 require 'vips'
 require 'zlib'
 require 'stringio'
+require_relative 'ext/terrain_downsample_extension'
 
 class BackgroundTileLoader
   STRATEGIES = %w[grid human_like].freeze
@@ -183,7 +184,29 @@ class BackgroundTileLoader
         end
       end
 
-      if @route[:webp_config] && @route[:source_format] == 'png'
+      if @route[:downsample_config]&.dig(:enabled) && data && !data.empty?
+        begin
+          encoding = @route[:metadata][:encoding]
+          target_size = @route[:downsample_config][:target_size]
+          source_format = @route[:metadata][:format]
+          output_format = @route[:metadata][:format]
+          
+          if source_format == 'webp'
+            img = Vips::Image.new_from_buffer(data, '')
+            data = img.write_to_buffer('.png')
+          end
+          
+          data = TerrainDownsampleFFI.downsample_png(data, target_size, encoding)
+          
+          if output_format == 'webp'
+            data = convert_to_webp(data)
+          end
+        rescue => e
+          DatabaseManager.record_miss(@route, z, x, y, 'image_processing_error', "Image processing error: #{e.message}", 500, data)
+          LOGGER.warn("Image processing error for #{z}/#{x}/#{y}: #{e}")
+          return false
+        end
+      elsif @route[:webp_config] && @route[:source_format] == 'png'
         begin
           data = convert_to_webp(data)
         rescue => e

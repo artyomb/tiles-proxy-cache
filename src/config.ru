@@ -28,6 +28,7 @@ SAFE_KEYS = %i[path target minzoom maxzoom mbtiles_file miss_timeout miss_max_re
 DB_SAFE_KEYS = SAFE_KEYS + %i[db]
 
 require_relative 'ext/lerc_extension'
+require_relative 'ext/terrain_downsample_extension'
 
 get "/" do
   @total_sources = ROUTES.length
@@ -263,7 +264,30 @@ helpers do
       end
     end
     
-    if route[:webp_config] && route[:source_format] == 'png'
+    if route[:downsample_config]&.dig(:enabled) && data && !data.empty?
+      begin
+        encoding = route[:metadata][:encoding]
+        target_size = route[:downsample_config][:target_size]
+        source_format = route[:metadata][:format]
+        output_format = route[:metadata][:format]
+        
+        if source_format == 'webp'
+          img = Vips::Image.new_from_buffer(data, '')
+          data = img.write_to_buffer('.png')
+        end
+        
+        data = TerrainDownsampleFFI.downsample_png(data, target_size, encoding)
+        
+        if output_format == 'webp'
+          data = convert_to_webp(data, route)
+          headers['Content-Type'] = 'image/webp'
+        else
+          headers['Content-Type'] = 'image/png'
+        end
+      rescue => e
+        return { error: true, reason: 'image_processing_error', details: build_error_details(response, "Image processing error: #{e.message}"), status: 500, body: data }
+      end
+    elsif route[:webp_config] && route[:source_format] == 'png'
       begin
         data = convert_to_webp(data, route)
         headers['Content-Type'] = 'image/webp'
