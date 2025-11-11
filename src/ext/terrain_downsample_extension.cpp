@@ -2,22 +2,24 @@
 #include <png.h>
 #include <vector>
 #include <cstdint>
-#include <stdexcept>
 #include <cmath>
 #include <string_view>
 #include <algorithm>
-#include <array>
-#include <climits>
+#include <limits>
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
 
-// Mapbox Terrain RGB encoding constants
 constexpr double MAPBOX_TERRAIN_RGB_OFFSET = 10000.0;
 constexpr double MAPBOX_TERRAIN_RGB_SCALE = 0.1;
 constexpr int32_t MAPBOX_TERRAIN_RGB_MAX_24BIT = 16777215;
 
-// Terrarium encoding constants
 constexpr float TERRARIUM_OFFSET = 32768.0f;
+
+enum class DownsampleMethod {
+    Average,
+    Nearest,
+    Maximum
+};
 
 constexpr float decode_mapbox_terrain_rgb(std::uint8_t r, std::uint8_t g, std::uint8_t b) noexcept {
     return -MAPBOX_TERRAIN_RGB_OFFSET + ((r * 256 * 256) + (g * 256) + b) * MAPBOX_TERRAIN_RGB_SCALE;
@@ -31,6 +33,7 @@ constexpr void encode_mapbox_terrain_rgb(float elevation, std::uint8_t& r, std::
     const int32_t code = std::clamp(
         static_cast<int32_t>(std::round((elevation + MAPBOX_TERRAIN_RGB_OFFSET) / MAPBOX_TERRAIN_RGB_SCALE)),
         0, MAPBOX_TERRAIN_RGB_MAX_24BIT);
+    // Pack 24-bit code into RGB: R=bits 16-23, G=bits 8-15, B=bits 0-7
     r = static_cast<std::uint8_t>((code >> 16) & 0xFF);
     g = static_cast<std::uint8_t>((code >> 8) & 0xFF);
     b = static_cast<std::uint8_t>(code & 0xFF);
@@ -46,6 +49,7 @@ void encode_terrarium(float elevation, std::uint8_t& r, std::uint8_t& g, std::ui
     b = static_cast<std::uint8_t>(std::round(F * 256.0f));
 }
 
+// RAII wrapper for libpng png_image
 struct PngImage {
     png_image image{};
     PngImage() { image.version = PNG_IMAGE_VERSION; }
@@ -96,11 +100,74 @@ VALUE create_png_from_rgb(const std::vector<std::uint8_t>& rgb, int width, int h
     return result;
 }
 
-extern "C" VALUE downsample_png(VALUE /*self*/, VALUE png_data, VALUE target_size_val, VALUE encoding_type_val) {
+inline float decode_elevation(const std::uint8_t* rgb, bool is_terrarium) noexcept {
+    return is_terrarium
+        ? decode_terrarium(rgb[0], rgb[1], rgb[2])
+        : decode_mapbox_terrain_rgb(rgb[0], rgb[1], rgb[2]);
+}
+
+// Nearest: copy left-top pixel RGB (no decode/encode needed)
+void downsample_nearest(const std::uint8_t* input_ptr, int source_width,
+                       int src_x, int src_y,
+                       std::uint8_t& r, std::uint8_t& g, std::uint8_t& b) noexcept {
+    const int idx = (src_y * source_width + src_x) * 3;
+    r = input_ptr[idx];
+    g = input_ptr[idx + 1];
+    b = input_ptr[idx + 2];
+}
+
+// Average: mean of 4 pixels in 2×2 block
+void downsample_average(const std::uint8_t* input_ptr, int source_width,
+                       int src_x, int src_y, bool is_terrarium,
+                       std::uint8_t& r, std::uint8_t& g, std::uint8_t& b) noexcept {
+    const int idx00 = (src_y * source_width + src_x) * 3;
+    const int idx10 = (src_y * source_width + (src_x + 1)) * 3;
+    const int idx01 = ((src_y + 1) * source_width + src_x) * 3;
+    const int idx11 = ((src_y + 1) * source_width + (src_x + 1)) * 3;
+    
+    const float e00 = decode_elevation(input_ptr + idx00, is_terrarium);
+    const float e10 = decode_elevation(input_ptr + idx10, is_terrarium);
+    const float e01 = decode_elevation(input_ptr + idx01, is_terrarium);
+    const float e11 = decode_elevation(input_ptr + idx11, is_terrarium);
+    
+    const float avg_elevation = (e00 + e10 + e01 + e11) * 0.25f;
+    
+    if (is_terrarium) {
+        encode_terrarium(avg_elevation, r, g, b);
+    } else {
+        encode_mapbox_terrain_rgb(avg_elevation, r, g, b);
+    }
+}
+
+// Maximum: highest elevation from 4 pixels in 2×2 block
+void downsample_maximum(const std::uint8_t* input_ptr, int source_width,
+                       int src_x, int src_y, bool is_terrarium,
+                       std::uint8_t& r, std::uint8_t& g, std::uint8_t& b) noexcept {
+    const int idx00 = (src_y * source_width + src_x) * 3;
+    const int idx10 = (src_y * source_width + (src_x + 1)) * 3;
+    const int idx01 = ((src_y + 1) * source_width + src_x) * 3;
+    const int idx11 = ((src_y + 1) * source_width + (src_x + 1)) * 3;
+    
+    const float e00 = decode_elevation(input_ptr + idx00, is_terrarium);
+    const float e10 = decode_elevation(input_ptr + idx10, is_terrarium);
+    const float e01 = decode_elevation(input_ptr + idx01, is_terrarium);
+    const float e11 = decode_elevation(input_ptr + idx11, is_terrarium);
+    
+    const float max_elevation = std::max({e00, e10, e01, e11});
+    
+    if (is_terrarium) {
+        encode_terrarium(max_elevation, r, g, b);
+    } else {
+        encode_mapbox_terrain_rgb(max_elevation, r, g, b);
+    }
+}
+
+extern "C" VALUE downsample_png(VALUE /*self*/, VALUE png_data, VALUE target_size_val, VALUE encoding_type_val, VALUE method_val) {
     try {
         Check_Type(png_data, T_STRING);
         Check_Type(target_size_val, T_FIXNUM);
         Check_Type(encoding_type_val, T_STRING);
+        Check_Type(method_val, T_STRING);
         
         if (RSTRING_LEN(png_data) == 0) {
             rb_raise(rb_eArgError, "Empty PNG data");
@@ -117,6 +184,20 @@ extern "C" VALUE downsample_png(VALUE /*self*/, VALUE png_data, VALUE target_siz
         bool is_terrarium = (encoding_type == "terrarium");
         if (!is_terrarium && encoding_type != "mapbox") {
             rb_raise(rb_eArgError, "Unknown encoding type: %s (expected 'mapbox' or 'terrarium')", encoding_type.data());
+        }
+        
+        const std::string_view method_str{RSTRING_PTR(method_val),
+                                         static_cast<size_t>(RSTRING_LEN(method_val))};
+        
+        DownsampleMethod downsample_method;
+        if (method_str == "average") {
+            downsample_method = DownsampleMethod::Average;
+        } else if (method_str == "nearest") {
+            downsample_method = DownsampleMethod::Nearest;
+        } else if (method_str == "maximum") {
+            downsample_method = DownsampleMethod::Maximum;
+        } else {
+            rb_raise(rb_eArgError, "Unknown downsample method: %s (expected 'average', 'nearest', or 'maximum')", method_str.data());
         }
         
         PngInfo png_info = decompress_png_to_rgb(png_data);
@@ -139,38 +220,20 @@ extern "C" VALUE downsample_png(VALUE /*self*/, VALUE png_data, VALUE target_siz
                 const int src_x = out_x * scale_factor;
                 const int src_y = out_y * scale_factor;
                 
-                float sum_elevation = 0.0f;
-                int count = 0;
-                
-                for (int dy = 0; dy < scale_factor; ++dy) {
-                    for (int dx = 0; dx < scale_factor; ++dx) {
-                        const int px = src_x + dx;
-                        const int py = src_y + dy;
-                        const int idx = (py * source_width + px) * 3;
-                        
-                        const std::uint8_t r = input_ptr[idx];
-                        const std::uint8_t g = input_ptr[idx + 1];
-                        const std::uint8_t b = input_ptr[idx + 2];
-                        
-                        float elevation;
-                        if (is_terrarium) {
-                            elevation = decode_terrarium(r, g, b);
-                        } else {
-                            elevation = decode_mapbox_terrain_rgb(r, g, b);
-                        }
-                        
-                        sum_elevation += elevation;
-                        ++count;
-                    }
-                }
-                
-                const float avg_elevation = sum_elevation / static_cast<float>(count);
-                
                 std::uint8_t r, g, b;
-                if (is_terrarium) {
-                    encode_terrarium(avg_elevation, r, g, b);
-                } else {
-                    encode_mapbox_terrain_rgb(avg_elevation, r, g, b);
+                
+                switch (downsample_method) {
+                    case DownsampleMethod::Nearest:
+                        downsample_nearest(input_ptr, source_width, src_x, src_y, r, g, b);
+                        break;
+                    
+                    case DownsampleMethod::Average:
+                        downsample_average(input_ptr, source_width, src_x, src_y, is_terrarium, r, g, b);
+                        break;
+                    
+                    case DownsampleMethod::Maximum:
+                        downsample_maximum(input_ptr, source_width, src_x, src_y, is_terrarium, r, g, b);
+                        break;
                 }
                 
                 *output_ptr++ = r;
@@ -190,6 +253,6 @@ extern "C" VALUE downsample_png(VALUE /*self*/, VALUE png_data, VALUE target_siz
 
 extern "C" void Init_terrain_downsample_extension(void) {
     VALUE TerrainDownsampleFFI = rb_define_module("TerrainDownsampleFFI");
-    rb_define_singleton_method(TerrainDownsampleFFI, "downsample_png", downsample_png, 3);
+    rb_define_singleton_method(TerrainDownsampleFFI, "downsample_png", downsample_png, 4);
 }
 

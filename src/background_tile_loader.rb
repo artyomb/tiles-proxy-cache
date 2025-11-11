@@ -188,6 +188,7 @@ class BackgroundTileLoader
         begin
           encoding = @route[:metadata][:encoding]
           target_size = @route[:downsample_config][:target_size]
+          method = @route[:downsample_config][:method]
           source_format = @route[:metadata][:format]
           output_format = @route[:metadata][:format]
           
@@ -196,7 +197,7 @@ class BackgroundTileLoader
             data = img.write_to_buffer('.png')
           end
           
-          data = TerrainDownsampleFFI.downsample_png(data, target_size, encoding)
+          data = TerrainDownsampleFFI.downsample_png(data, target_size, encoding, method)
           
           if output_format == 'webp'
             data = convert_to_webp(data)
