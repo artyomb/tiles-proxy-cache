@@ -21,6 +21,8 @@ module DatabaseManager
 
     route[:locks] = Hash.new { |h,k| h[k] = Mutex.new }
 
+    cleanup_misses_if_needed(route)
+
     db
   end
 
@@ -67,7 +69,8 @@ module DatabaseManager
     return unless route[:db][:misses].count > max_records
 
     keep_count = (max_records * 0.8).to_i
-    route[:db][:misses].reverse(:ts).offset(keep_count).delete
+    cutoff_ts = route[:db][:misses].reverse(:ts).limit(keep_count).min(:ts)
+    route[:db][:misses].where { ts < cutoff_ts }.delete if cutoff_ts
   end
 
   private

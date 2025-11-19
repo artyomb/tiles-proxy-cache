@@ -349,18 +349,25 @@ class BackgroundTileLoader
     end_zoom = @config[:max_scan_zoom] || 20
 
     (start_zoom..end_zoom).each do |z|
-      @route[:db][:tile_scan_progress].insert_conflict(
-        target: [:source, :zoom_level],
-        update: {}
-      ).insert(
-        source: @source_name,
-        zoom_level: z,
-        last_x: 0,
-        last_y: 0,
-        tiles_today: 0,
-        last_scan_date: nil,
-        status: 'waiting'
-      )
+      existing = @route[:db][:tile_scan_progress].where(source: @source_name, zoom_level: z).first
+      
+      if existing && existing[:status] == 'error'
+        reset_zoom_progress(z)
+        LOGGER.info("Reset error status for zoom #{z} of #{@source_name} on startup")
+      else
+        @route[:db][:tile_scan_progress].insert_conflict(
+          target: [:source, :zoom_level],
+          update: {}
+        ).insert(
+          source: @source_name,
+          zoom_level: z,
+          last_x: 0,
+          last_y: 0,
+          tiles_today: 0,
+          last_scan_date: nil,
+          status: 'waiting'
+        )
+      end
     end
   rescue => e
     LOGGER.warn("Failed to initialize zoom progress: #{e}")
