@@ -1,0 +1,264 @@
+# Tile Services Configuration Example
+# This file demonstrates various configuration options for tile sources
+# Copy this file to tile-services.yaml and configure with your actual data
+
+# Example 1: Basic satellite imagery source (baselayer, PNG format)
+Example_Satellite:
+  path: "/satellite/:z/:x/:y"
+  target: "https://example.com/tiles/satellite/{z}/{x}/{y}.png"
+  minzoom: 1
+  maxzoom: 18
+  miss_timeout: 300        # Time in seconds before retrying failed tiles
+  miss_max_records: 10000  # Maximum miss records before cleanup
+  headers:
+    request:
+      User-Agent: "Mozilla/5.0"
+      Referer: "https://example.com/"
+    response:
+      Cache-Control:
+        max-age:
+          hit: 86400       # Cache duration for cached tiles (seconds)
+          miss: 300        # Cache duration for newly fetched tiles (seconds)
+  query_params:            # Optional query parameters
+    # apikey: "your-api-key-here"
+  mbtiles_file: "example_satellite.mbtiles"
+  metadata:
+    bounds: "-180,-85.0511,180,85.0511"  # Geographic bounds: west,south,east,north
+    center: "0,0,4"                       # Default center: lng,lat,zoom
+    type: "baselayer"                     # baselayer | overlay
+  style_metadata:
+    base_map: {type: "background"}        # base | dem | background | solid
+  autoscan:
+    enabled: false                        # Enable/disable background tile preloading
+    daily_limit: 30000                   # Maximum tiles to fetch per day
+    max_scan_zoom: 10                     # Maximum zoom level for autoscan
+
+# Example 2: Terrain/DEM overlay with Mapbox encoding and WebP format
+Example_Terrain_Mapbox:
+  path: "/terrain/:z/:x/:y"
+  target: "https://example.com/tiles/terrain/{z}/{x}/{y}"
+  minzoom: 0
+  maxzoom: 14
+  miss_timeout: 300
+  miss_max_records: 10000
+  headers:
+    request:
+      User-Agent: "Mozilla/5.0"
+      Referer: "https://example.com/"
+      Accept-Encoding: "identity"        # Required for some LERC sources
+    response:
+      Cache-Control:
+        max-age:
+          hit: 86400
+          miss: 300
+  query_params:
+    key: "example-api-key"
+  mbtiles_file: "example_terrain.mbtiles"
+  metadata:
+    bounds: "-180,-85.0511,180,85.0511"
+    center: "0,0,2"
+    type: "overlay"                       # Overlay layer (not base map)
+    encoding: "mapbox"                    # mapbox | terrarium
+    format: "webp"                        # png | webp | jpeg
+    tileSize: "256"                       # Tile size in pixels: 256 | 512
+  style_metadata:
+    base_map: {type: "dem"}               # DEM (Digital Elevation Model) type
+  autoscan:
+    enabled: false
+    daily_limit: 50000
+    max_scan_zoom: 5
+
+# Example 3: LERC format source (ArcGIS Elevation style)
+Example_LERC_Elevation:
+  path: "/elevation/:z/:x/:y"
+  target: "https://example.com/arcgis/rest/services/Elevation/ImageServer/tile/{z}/{y}/{x}"
+  minzoom: 0
+  maxzoom: 16
+  miss_timeout: 300
+  miss_max_records: 10000
+  source_format: "lerc"                   # LERC format (ArcGIS elevation data)
+  headers:
+    request:
+      User-Agent: "Mozilla/5.0"
+      Referer: "https://example.com/viewer.html"
+      Accept-Encoding: "identity"        # Required for LERC sources
+    response:
+      Cache-Control:
+        max-age:
+          hit: 86400
+          miss: 300
+  mbtiles_file: "example_elevation.mbtiles"
+  metadata:
+    bounds: "-180,-85.0511,180,85.0511"
+    center: "0,0,2"
+    type: "overlay"
+    encoding: "mapbox"                    # LERC is converted to Mapbox RGB encoding
+    format: "png"                         # Output format after LERC decoding
+    tileSize: "256"
+  style_metadata:
+    base_map: {type: "dem"}
+  autoscan:
+    enabled: false
+    daily_limit: 50000
+    max_scan_zoom: 5
+
+# Example 4: Terrain with downsampling and WebP conversion
+Example_Terrain_Downsampled:
+  path: "/terrain_down/:z/:x/:y"
+  target: "https://example.com/tiles/terrain-source/{z}/{x}/{y}"
+  minzoom: 0
+  maxzoom: 14
+  miss_timeout: 300
+  miss_max_records: 10000
+  headers:
+    request:
+      User-Agent: "Mozilla/5.0"
+    response:
+      Cache-Control:
+        max-age:
+          hit: 86400
+          miss: 300
+  mbtiles_file: "example_terrain_downsampled.mbtiles"
+  metadata:
+    bounds: "-180,-85.0511,180,85.0511"
+    center: "0,0,1"
+    type: "overlay"
+    encoding: "mapbox"
+    format: "webp"
+    tileSize: "256"
+  downsample_config:                       # Downsampling configuration
+    enabled: true                          # Enable downsampling
+    target_size: 256                       # Target tile size: 256 | 512
+    method: "average"                       # average | nearest | maximum
+  webp_config:                             # WebP conversion configuration
+    lossless: true                         # true = lossless (use effort), false = lossy (use quality)
+    effort: 3                              # 0-9, higher = smaller but slower (for lossless)
+    # quality: 85                          # 0-100, higher = better quality (for lossy, default: 75)
+  style_metadata:
+    base_map: {type: "dem"}
+  autoscan:
+    enabled: false
+    daily_limit: 50000
+    max_scan_zoom: 5
+
+# Example 5: PNG source with WebP conversion (no downsampling)
+Example_PNG_to_WebP:
+  path: "/png_webp/:z/:x/:y"
+  target: "https://example.com/tiles/png/{z}/{x}/{y}.png"
+  minzoom: 1
+  maxzoom: 20
+  miss_timeout: 300
+  miss_max_records: 5000
+  source_format: "png"                    # Source format (for WebP conversion)
+  headers:
+    request:
+      User-Agent: "Mozilla/5.0"
+    response:
+      Cache-Control:
+        max-age:
+          hit: 86400
+          miss: 300
+  mbtiles_file: "example_png_webp.mbtiles"
+  metadata:
+    bounds: "-180,-85.0511,180,85.0511"
+    center: "0,0,1"
+    type: "baselayer"
+    format: "webp"                         # Output format
+  webp_config:
+    lossless: false                        # Use lossy compression
+    quality: 90                            # Quality 0-100 (for lossy)
+  autoscan:
+    enabled: true                          # Autoscan enabled
+    daily_limit: 50000
+    max_scan_zoom: 4
+
+# Example 6: Terrarium encoding (alternative to Mapbox)
+Example_Terrain_Terrarium:
+  path: "/terrarium/:z/:x/:y"
+  target: "https://example.com/tiles/terrarium/{z}/{x}/{y}.png"
+  minzoom: 0
+  maxzoom: 15
+  miss_timeout: 300
+  miss_max_records: 10000
+  headers:
+    request:
+      User-Agent: "Mozilla/5.0"
+    response:
+      Cache-Control:
+        max-age:
+          hit: 86400
+          miss: 300
+  mbtiles_file: "example_terrarium.mbtiles"
+  metadata:
+    bounds: "-180,-85.0511,180,85.0511"
+    center: "0,0,2"
+    type: "overlay"
+    encoding: "terrarium"                 # Terrarium encoding (alternative to mapbox)
+  style_metadata:
+    base_map: {type: "dem"}
+  autoscan:
+    enabled: false
+    daily_limit: 50000
+    max_scan_zoom: 5
+
+# Example 7: Regional bounds (not worldwide)
+Example_Regional:
+  path: "/regional/:z/:x/:y"
+  target: "https://example.com/tiles/region/{z}/{x}/{y}.png"
+  minzoom: 3
+  maxzoom: 17
+  miss_timeout: 300
+  miss_max_records: 10000
+  headers:
+    request:
+      User-Agent: "Mozilla/5.0"
+    response:
+      Cache-Control:
+        max-age:
+          hit: 86400
+          miss: 300
+  query_params:
+    apikey: "example-regional-api-key"
+  mbtiles_file: "example_regional.mbtiles"
+  metadata:
+    bounds: "-180,40,180,85.0511"         # Regional bounds (e.g., Northern hemisphere)
+    center: "0,65,3"                      # Centered on region
+    type: "baselayer"
+  style_metadata:
+    base_map: {type: "solid"}             # solid type for base maps
+  autoscan:
+    enabled: false
+    daily_limit: 60000
+    max_scan_zoom: 12
+
+# Example 8: Pre-cached local source (dummy target, all tiles in mbtiles)
+Example_PreCached:
+  path: "/precached/:z/:x/:y"
+  target: "https://dummy.example.com/{z}/{x}/{y}"  # Dummy target, tiles are pre-cached
+  minzoom: 0
+  maxzoom: 8
+  miss_timeout: 300
+  miss_max_records: 10000
+  headers:
+    request:
+      User-Agent: "Mozilla/5.0"
+    response:
+      Cache-Control:
+        max-age:
+          hit: 86400
+          miss: 300
+  mbtiles_file: "example_precached.mbtiles"
+  metadata:
+    bounds: "-180,-85.0511,180,85.0511"
+    center: "0,0,1"
+    type: "overlay"
+    encoding: "mapbox"
+    format: "webp"
+    tileSize: "256"
+  style_metadata:
+    base_map: {type: "dem"}
+  autoscan:
+    enabled: false                        # Usually disabled for pre-cached sources
+    daily_limit: 50000
+    max_scan_zoom: 5
+
