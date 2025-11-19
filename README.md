@@ -128,7 +128,6 @@ Source_Name:
     enabled: true                                   # Enable background scanning
     daily_limit: 30000                             # Maximum tiles per day
     max_scan_zoom: 12                               # Maximum zoom level to scan
-    strategy: "grid"                                # Scanning strategy
 ```
 
 ### Multiple Sources Example

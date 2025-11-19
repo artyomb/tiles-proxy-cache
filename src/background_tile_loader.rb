@@ -4,8 +4,6 @@ require 'stringio'
 require_relative 'ext/terrain_downsample_extension'
 
 class BackgroundTileLoader
-  STRATEGIES = %w[grid human_like].freeze
-
   def initialize(route, source_name)
     @route = route
     @source_name = source_name
@@ -95,10 +93,7 @@ class BackgroundTileLoader
     @current_progress[z] = load_progress(z)
     update_status(z, 'active')
 
-    case @config[:strategy]
-    when 'human_like' then human_like_strategy(z, bounds)
-    else grid_strategy(z, bounds)
-    end
+    scan_zoom_grid(z, bounds)
 
     cleanup_zoom_misses(z)
     final_x = @current_progress[z]&.dig(:x) || 0
@@ -107,7 +102,7 @@ class BackgroundTileLoader
     update_status(z, 'completed')
   end
 
-  def grid_strategy(z, bounds)
+  def scan_zoom_grid(z, bounds)
     _, min_y, max_x, max_y = bounds
     x, y = @current_progress[z].values_at(:x, :y)
 
@@ -128,11 +123,6 @@ class BackgroundTileLoader
       end
     end
     LOGGER.info("Completed zoom level #{z} for #{@source_name}")
-  end
-
-  def human_like_strategy(z, bounds)
-    # TODO
-    grid_strategy(z, bounds)
   end
 
   def fetch_tile(x, y, z)
