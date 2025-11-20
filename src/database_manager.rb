@@ -1,4 +1,5 @@
 require 'sequel'
+Sequel.extension :migration
 require_relative 'metadata_manager'
 
 module DatabaseManager
@@ -10,6 +11,7 @@ module DatabaseManager
 
     configure_sqlite_pragmas(db)
     create_tables(db)
+    apply_migrations(db)
     route[:db] = db
     
     integrate_wal_files(db, route_name)
@@ -53,11 +55,22 @@ module DatabaseManager
   end
 
   def record_miss(route, z, x, y, reason, details, status, body)
-    route[:db][:misses].where(z: z, x: x, y: y).delete
+    tile_row = (1 << z) - 1 - y
+
+    route[:db][:misses].where(
+      zoom_level: z,
+      tile_column: x,
+      tile_row: tile_row
+    ).delete
 
     route[:db][:misses].insert(
-      z: z, x: x, y: y, ts: Time.now.to_i,
-      reason: reason, details: details, status: status,
+      zoom_level: z,
+      tile_column: x,
+      tile_row: tile_row,
+      ts: Time.now.to_i,
+      reason: reason,
+      details: details,
+      status: status,
       response_body: Sequel.blob(body || '')
     )
 
@@ -99,10 +112,30 @@ module DatabaseManager
       index [:zoom_level, Sequel.function(:length, :tile_data)], name: :idx_tiles_zoom_size
     }
     db.create_table?(:misses){ 
-      Integer :z; Integer :x; Integer :y; Integer :ts
-      String :reason; String :details; Integer :status; File :response_body
-      index [:z, :x, :y], name: :idx_misses_xyz
+      Integer :zoom_level, null: false
+      Integer :tile_column, null: false
+      Integer :tile_row, null: false
+      Integer :ts, null: false
+      String :reason
+      String :details
+      Integer :status
+      File :response_body
+      primary_key [:zoom_level, :tile_column, :tile_row], name: :misses_pk
+      index [:zoom_level, :status], name: :idx_misses_zoom_status
       index :ts, name: :idx_misses_ts
     }
+  end
+
+  def apply_migrations(db)
+    migrations_path = File.join(__dir__, 'migrations')
+    return unless Dir.exist?(migrations_path) && !Dir[File.join(migrations_path, '*.rb')].empty?
+
+    begin
+      Sequel::Migrator.run(db, migrations_path, table: :schema_info)
+      LOGGER.info("Migrations applied successfully")
+    rescue => e
+      LOGGER.error("Migration failed: #{e.message}")
+      raise
+    end
   end
 end

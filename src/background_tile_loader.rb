@@ -346,8 +346,7 @@ class BackgroundTileLoader
         LOGGER.info("Reset error status for zoom #{z} of #{@source_name} on startup")
       else
         @route[:db][:tile_scan_progress].insert_conflict(
-          target: [:source, :zoom_level],
-          update: {}
+          target: [:source, :zoom_level]
         ).insert(
           source: @source_name,
           zoom_level: z,
@@ -394,7 +393,7 @@ class BackgroundTileLoader
 
   def cleanup_zoom_misses(z)
     cutoff_time = Time.now.to_i - (@route[:miss_timeout] || 300)
-    @route[:db][:misses].where(z: z, ts: 0..cutoff_time).delete
+    @route[:db][:misses].where(zoom_level: z, ts: 0..cutoff_time).delete
   end
 
   def reset_zoom_progress(z)

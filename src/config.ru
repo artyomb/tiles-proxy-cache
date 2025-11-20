@@ -218,10 +218,20 @@ helpers do
   def should_skip_request?(route, z, x, y)
     timeout = route[:miss_timeout] || 300
     cutoff_time = Time.now.to_i - timeout
+    tile_row = tms_y(z, y)
 
-    route[:db][:misses].where(z: z, x: x, y: y, ts: 0..cutoff_time).delete
+    route[:db][:misses].where(
+      zoom_level: z,
+      tile_column: x,
+      tile_row: tile_row,
+      ts: 0..cutoff_time
+    ).delete
 
-    miss = route[:db][:misses].where(z: z, x: x, y: y).first
+    miss = route[:db][:misses].where(
+      zoom_level: z,
+      tile_column: x,
+      tile_row: tile_row
+    ).first
     miss&.[](:status)
   end
 
