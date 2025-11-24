@@ -23,8 +23,6 @@ module DatabaseManager
 
     route[:locks] = Hash.new { |h,k| h[k] = Mutex.new }
 
-    cleanup_misses_if_needed(route)
-
     db
   end
 
@@ -73,17 +71,14 @@ module DatabaseManager
       status: status,
       response_body: Sequel.blob(body || '')
     )
-
-    cleanup_misses_if_needed(route)
   end
 
-  def cleanup_misses_if_needed(route)
-    max_records = route[:miss_max_records] || 10000
-    return unless route[:db][:misses].count > max_records
-
-    keep_count = (max_records * 0.8).to_i
-    cutoff_ts = route[:db][:misses].reverse(:ts).limit(keep_count).min(:ts)
-    route[:db][:misses].where { ts < cutoff_ts }.delete if cutoff_ts
+  def cleanup_old_misses(route)
+    cutoff_time = Time.now.to_i - (route[:miss_timeout] || 300)
+    deleted = route[:db][:misses].where { ts <= cutoff_time }.delete
+    LOGGER.debug("Cleaned up #{deleted} old miss records") if deleted > 0
+  rescue => e
+    LOGGER.warn("Failed to cleanup old misses: #{e.message}")
   end
 
   private

@@ -363,7 +363,6 @@ class BackgroundTileLoader
   end
 
   def zoom_complete?(z)
-    cleanup_zoom_misses(z)
     expected = expected_tiles_count(z)
     actual_tiles = @route[:db][:tiles].where(zoom_level: z).count
 

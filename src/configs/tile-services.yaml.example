@@ -9,7 +9,6 @@ Example_Satellite:
   minzoom: 1
   maxzoom: 18
   miss_timeout: 300        # Time in seconds before retrying failed tiles
-  miss_max_records: 10000  # Maximum miss records before cleanup
   headers:
     request:
       User-Agent: "Mozilla/5.0"
@@ -40,7 +39,6 @@ Example_Terrain_Mapbox:
   minzoom: 0
   maxzoom: 14
   miss_timeout: 300
-  miss_max_records: 10000
   headers:
     request:
       User-Agent: "Mozilla/5.0"
@@ -75,7 +73,6 @@ Example_LERC_Elevation:
   minzoom: 0
   maxzoom: 16
   miss_timeout: 300
-  miss_max_records: 10000
   source_format: "lerc"                   # LERC format (ArcGIS elevation data)
   headers:
     request:
@@ -109,7 +106,6 @@ Example_Terrain_Downsampled:
   minzoom: 0
   maxzoom: 14
   miss_timeout: 300
-  miss_max_records: 10000
   headers:
     request:
       User-Agent: "Mozilla/5.0"
@@ -148,7 +144,6 @@ Example_PNG_to_WebP:
   minzoom: 1
   maxzoom: 20
   miss_timeout: 300
-  miss_max_records: 5000
   source_format: "png"                    # Source format (for WebP conversion)
   headers:
     request:
@@ -179,7 +174,6 @@ Example_Terrain_Terrarium:
   minzoom: 0
   maxzoom: 15
   miss_timeout: 300
-  miss_max_records: 10000
   headers:
     request:
       User-Agent: "Mozilla/5.0"
@@ -208,7 +202,6 @@ Example_Regional:
   minzoom: 3
   maxzoom: 17
   miss_timeout: 300
-  miss_max_records: 10000
   headers:
     request:
       User-Agent: "Mozilla/5.0"
@@ -238,7 +231,6 @@ Example_PreCached:
   minzoom: 0
   maxzoom: 8
   miss_timeout: 300
-  miss_max_records: 10000
   headers:
     request:
       User-Agent: "Mozilla/5.0"

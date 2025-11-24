@@ -19,16 +19,26 @@ register MapLibrePreview::Extension
 StackServiceBase.rack_setup self
 
 START_TIME = Time.now
+MISS_CLEANUP_INTERVAL = 5 #3600  # 1 hour
 
 CONFIG_FOLDER = ENV['RACK_ENV'] == 'production' ? '/configs' : "#{__dir__}/configs"
 
 ROUTES = Dir["#{CONFIG_FOLDER}/*.{yaml,yml}"].map { YAML.load_file(_1, symbolize_names: true) }.reduce({}, :merge)
 
-SAFE_KEYS = %i[path target minzoom maxzoom mbtiles_file miss_timeout miss_max_records metadata style_metadata autoscan]
+SAFE_KEYS = %i[path target minzoom maxzoom mbtiles_file miss_timeout metadata style_metadata autoscan]
 DB_SAFE_KEYS = SAFE_KEYS + %i[db]
 
 require_relative 'ext/lerc_extension'
 require_relative 'ext/terrain_downsample_extension'
+
+def start_periodic_cleanup_thread(routes)
+  Thread.new do
+    loop do
+      sleep MISS_CLEANUP_INTERVAL
+      routes.each { |_name, route| DatabaseManager.cleanup_old_misses(route) rescue (LOGGER.warn("Periodic cleanup failed for #{_name}: #{$!.message}")) }
+    end
+  end
+end
 
 get "/" do
   @total_sources = ROUTES.length
@@ -128,6 +138,8 @@ configure do
       loader.start_wal_checkpoint_thread
     end
   end
+
+  $cleanup_thread = start_periodic_cleanup_thread(ROUTES)
 end
 
 ROUTES.each do |_name, route|
@@ -412,6 +424,7 @@ helpers do
 end
 
 at_exit do
+  $cleanup_thread&.kill
   ROUTES.each do |_name, route|
     route[:autoscan_loader]&.stop_scanning
   end
