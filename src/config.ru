@@ -19,7 +19,7 @@ register MapLibrePreview::Extension
 StackServiceBase.rack_setup self
 
 START_TIME = Time.now
-MISS_CLEANUP_INTERVAL = 5 #3600  # 1 hour
+MISS_CLEANUP_INTERVAL = 3600  # 1 hour
 
 CONFIG_FOLDER = ENV['RACK_ENV'] == 'production' ? '/configs' : "#{__dir__}/configs"
 
