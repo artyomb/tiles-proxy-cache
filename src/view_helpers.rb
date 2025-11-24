@@ -2,7 +2,8 @@
 
 module ViewHelpers
   def get_tiles_size(route)
-    route[:db][:tiles].sum(Sequel.function(:length, :tile_data)) || 0
+    db = route[:db]
+    db.table_exists?(:tiles) ? (db[:tiles].sum(Sequel.function(:length, :tile_data)) || 0) : 0
   end
 
   def tiles_per_zoom(z, route = nil)
@@ -22,12 +23,13 @@ module ViewHelpers
   def zoom_coverage_stats(route)
     min_zoom = route[:minzoom] || 1
     max_zoom = route[:maxzoom] || 20
+    db = route[:db]
 
-    cached_counts = route[:db][:tiles]
-                      .select(:zoom_level, Sequel.function(:count, :zoom_level).as(:count))
-                      .where(zoom_level: min_zoom..max_zoom)
-                      .group(:zoom_level)
-                      .to_hash(:zoom_level, :count)
+    cached_counts = db.table_exists?(:tiles) ? db[:tiles]
+      .select(:zoom_level, Sequel.function(:count, :zoom_level).as(:count))
+      .where(zoom_level: min_zoom..max_zoom)
+      .group(:zoom_level)
+      .to_hash(:zoom_level, :count) : {}
 
     (min_zoom..max_zoom).map do |z|
       possible = tiles_per_zoom(z, route)
@@ -41,20 +43,73 @@ module ViewHelpers
   def total_coverage_percentage(route)
     min_zoom = route[:minzoom] || 1
     max_zoom = route[:maxzoom] || 20
+    db = route[:db]
 
     total_possible = (min_zoom..max_zoom).sum { |z| tiles_per_zoom(z, route) }
-    total_cached = route[:db][:tiles].where(zoom_level: min_zoom..max_zoom).count
+    total_cached = db.table_exists?(:tiles) ? db[:tiles].where(zoom_level: min_zoom..max_zoom).count : 0
 
     format('%.8f', (total_cached.to_f / total_possible) * 100).sub(/\.?0+$/, '')
   end
 
-  def d3_coverage_data(route)
-    zoom_coverage_stats(route).map do |stat|
+  def zoom_level_observability_data(route, source_name = nil)
+    min_zoom = route[:minzoom] || 1
+    max_zoom = route[:maxzoom] || 20
+    db = route[:db]
+
+    has_progress_table = db.table_exists?(:tile_scan_progress)
+    autoscan_statuses = {}
+    if has_progress_table && source_name
+      autoscan_statuses = db[:tile_scan_progress]
+        .where(source: source_name.to_s)
+        .to_hash(:zoom_level, :status)
+    end
+
+    errors_by_zoom = db.table_exists?(:misses) ? db[:misses]
+      .select(:zoom_level, Sequel.function(:count, :zoom_level).as(:count))
+      .where(zoom_level: min_zoom..max_zoom)
+      .group(:zoom_level)
+      .to_hash(:zoom_level, :count) : {}
+
+    cached_by_zoom = db.table_exists?(:tiles) ? db[:tiles]
+      .select(:zoom_level, Sequel.function(:count, :zoom_level).as(:count))
+      .where(zoom_level: min_zoom..max_zoom)
+      .group(:zoom_level)
+      .to_hash(:zoom_level, :count) : {}
+
+    (min_zoom..max_zoom).map do |z|
+      possible = tiles_per_zoom(z, route)
+      cached = cached_by_zoom[z] || 0
+      errors = errors_by_zoom[z] || 0
+      remaining = [possible - cached - errors, 0].max
+      generated = 0
+
+      percentage = possible > 0 ? ((cached.to_f / possible) * 100).round(1) : 0
+      autoscan_status = autoscan_statuses[z] || 'waiting'
+
+      {
+        zoom: z,
+        percentage: percentage,
+        cached: cached,
+        possible: possible,
+        errors: errors,
+        remaining: remaining,
+        generated: generated,
+        autoscan_status: autoscan_status
+      }
+    end
+  end
+
+  def d3_coverage_data(route, source_name = nil)
+    zoom_level_observability_data(route, source_name).map do |stat|
       {
         zoom: stat[:zoom],
         percentage: stat[:percentage],
         cached: stat[:cached],
-        possible: stat[:possible]
+        possible: stat[:possible],
+        errors: stat[:errors],
+        remaining: stat[:remaining],
+        generated: stat[:generated],
+        autoscan_status: stat[:autoscan_status]
       }
     end
   end

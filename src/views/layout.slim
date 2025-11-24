@@ -269,6 +269,12 @@ html
       |   50% { opacity: 0.5; }
       |   100% { opacity: 1; }
       | }
+      | .status-active {
+      |   animation: pulse 1.5s ease-in-out infinite;
+      | }
+      | .chart-tooltip {
+      |   box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+      | }
 
   body
     .container
@@ -289,12 +295,23 @@ html
       |   config.classList.toggle('hidden');
       | }
       | 
+      | function getStatusColor(status) {
+      |   const colors = {
+      |     'waiting': '#808080',
+      |     'active': '#6a9955',
+      |     'completed': '#6a9955',
+      |     'stopped': '#ffc66d',
+      |     'error': '#f44747'
+      |   };
+      |   return colors[status] || '#808080';
+      | }
+      | 
       | function createCoverageChart(containerId, data) {
       |   if (!data?.length) return;
       | 
       |   const container = document.getElementById(containerId);
       |   const containerWidth = container.parentElement.offsetWidth - 48;
-      |   const margin = {top: 20, right: 20, bottom: 30, left: 40};
+      |   const margin = {top: 20, right: 20, bottom: 50, left: 40};
       |   const width = containerWidth - margin.left - margin.right;
       |   const height = 200 - margin.top - margin.bottom;
       | 
@@ -304,6 +321,24 @@ html
       |     .html('')
       |     .append('g')
       |     .attr('transform', `translate(${margin.left},${margin.top})`);
+      | 
+      |   const preparedData = data.map(d => {
+      |     const possible = d.possible || 1;
+      |     return {
+      |       zoom: d.zoom,
+      |       cached: (d.cached / possible) * 100,
+      |       errors: (d.errors / possible) * 100,
+      |       remaining: (d.remaining / possible) * 100,
+      |       generated: (d.generated / possible) * 100,
+      |       cachedCount: d.cached,
+      |       errorsCount: d.errors,
+      |       remainingCount: d.remaining,
+      |       generatedCount: d.generated,
+      |       possible: d.possible,
+      |       percentage: d.percentage,
+      |       autoscan_status: d.autoscan_status || 'waiting'
+      |     };
+      |   });
       | 
       |   const x = d3.scaleBand().range([0, width]).domain(data.map(d => d.zoom)).padding(0.1);
       |   const y = d3.scaleLinear().domain([0, 100]).range([height, 0]);
@@ -327,34 +362,84 @@ html
       |     .style('opacity', 0)
       |     .style('z-index', 1000);
       | 
-      |   svg.selectAll('rect').data(data).enter().append('rect')
-      |     .attr('x', d => x(d.zoom))
-      |     .attr('width', x.bandwidth())
-      |     .attr('y', d => y(d.percentage))
-      |     .attr('height', d => height - y(d.percentage))
-      |     .attr('fill', d => d.percentage > 50 ? '#6a9955' : '#ffc66d')
-      |     .attr('stroke', '#464749')
-      |     .attr('stroke-width', 1)
-      |     .on('mouseover', (event, d) => {
-      |       tooltip.transition().duration(200).style('opacity', 1);
-      |       tooltip.html(
-      |         `<strong>Zoom ${d.zoom}</strong><br/>` +
-      |         `Cached: ${d.cached.toLocaleString()} tiles<br/>` +
-      |         `Total: ${d.possible.toLocaleString()} tiles<br/>` +
-      |         `Coverage: ${d.percentage}%`
-      |       )
-      |       .style('left', (event.pageX + 10) + 'px')
-      |       .style('top', (event.pageY - 28) + 'px');
-      |     })
-      |     .on('mouseout', () => tooltip.transition().duration(500).style('opacity', 0));
+      |   const stack = d3.stack()
+      |     .keys(['cached', 'errors', 'remaining', 'generated'])
+      |     .order(d3.stackOrderNone)
+      |     .offset(d3.stackOffsetNone)
+      |     .value((d, key) => d[key] || 0);
       | 
-      |   svg.selectAll('text').data(data.filter(d => d.percentage > 15)).enter().append('text')
-      |     .text(d => d.cached.toLocaleString())
-      |     .attr('x', d => x(d.zoom) + x.bandwidth() / 2)
-      |     .attr('y', d => y(d.percentage) + 15)
+      |   const series = stack(preparedData);
+      | 
+      |   const colorScale = d3.scaleOrdinal()
+      |     .domain(['cached', 'errors', 'remaining', 'generated'])
+      |     .range(['#6a9955', '#c75450', '#808080', '#8b4513']);
+      | 
+      |   const layers = svg.selectAll('.layer')
+      |     .data(series)
+      |     .enter().append('g')
+      |       .attr('class', 'layer')
+      |       .attr('fill', d => colorScale(d.key));
+      | 
+      |   layers.selectAll('rect')
+      |     .data(d => d)
+      |     .enter().append('rect')
+      |       .attr('x', d => x(d.data.zoom))
+      |       .attr('y', d => y(d[1]))
+      |       .attr('height', d => y(d[0]) - y(d[1]))
+      |       .attr('width', x.bandwidth())
+      |       .attr('stroke', '#464749')
+      |       .attr('stroke-width', 1)
+      |       .attr('opacity', function(d) {
+      |         const layerKey = d3.select(this.parentNode).datum().key;
+      |         if (layerKey === 'remaining') {
+      |           return d.data.autoscan_status === 'active' ? 1 : 0.3;
+      |         }
+      |         return 1;
+      |       })
+      |       .on('mouseover', function(event, d) {
+      |         const layerKey = d3.select(this.parentNode).datum().key;
+      |         const baseOpacity = layerKey === 'remaining' && d.data.autoscan_status !== 'active' ? 0.3 : 1;
+      |         d3.select(this).attr('opacity', Math.min(baseOpacity + 0.2, 1));
+      |         tooltip.transition().duration(200).style('opacity', 1);
+      |         tooltip.html(
+      |           `<strong>Zoom ${d.data.zoom}</strong><br/>` +
+      |           `Cached: ${d.data.cachedCount.toLocaleString()} tiles<br/>` +
+      |           `Errors: ${d.data.errorsCount.toLocaleString()} tiles<br/>` +
+      |           `Remaining: ${d.data.remainingCount.toLocaleString()} tiles<br/>` +
+      |           `Generated: ${d.data.generatedCount.toLocaleString()} tiles<br/>` +
+      |           `Total: ${d.data.possible.toLocaleString()} tiles<br/>` +
+      |           `Coverage: ${d.data.percentage}%<br/>` +
+      |           `Status: ${d.data.autoscan_status}`
+      |         )
+      |         .style('left', (event.pageX + 10) + 'px')
+      |         .style('top', (event.pageY - 28) + 'px');
+      |       })
+      |       .on('mouseout', function(event, d) {
+      |         const layerKey = d3.select(this.parentNode).datum().key;
+      |         const baseOpacity = layerKey === 'remaining' && d.data.autoscan_status !== 'active' ? 0.3 : 1;
+      |         d3.select(this).attr('opacity', baseOpacity);
+      |         tooltip.transition().duration(500).style('opacity', 0);
+      |       });
+      | 
+      |   const statusIndicators = svg.selectAll('.status-indicator')
+      |     .data(preparedData)
+      |     .enter().append('g')
+      |       .attr('class', 'status-indicator')
+      |       .attr('transform', d => `translate(${x(d.zoom) + x.bandwidth() / 2}, ${height + 25})`);
+      | 
+      |   statusIndicators.append('line')
+      |     .attr('x1', 0)
+      |     .attr('x2', 0)
+      |     .attr('y1', 0)
+      |     .attr('y2', 3)
+      |     .attr('stroke', d => getStatusColor(d.autoscan_status))
+      |     .attr('stroke-width', 2);
+      | 
+      |   statusIndicators.append('text')
+      |     .attr('y', 15)
       |     .attr('text-anchor', 'middle')
-      |     .style('fill', '#ffffff')
+      |     .attr('fill', d => getStatusColor(d.autoscan_status))
       |     .style('font-size', '9px')
-      |     .style('font-weight', 'bold')
-      |     .style('text-shadow', '1px 1px 2px rgba(0,0,0,0.8)');
+      |     .text(d => d.autoscan_status)
+      |     .classed('status-active', d => d.autoscan_status === 'active');
       | }
