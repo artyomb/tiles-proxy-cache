@@ -107,8 +107,9 @@ class BackgroundTileLoader
       expected = expected_tiles_count(z)
       actual_tiles = @route[:db][:tiles].where(zoom_level: z).count
       errors = @route[:db][:misses].where(zoom_level: z).count
-      LOGGER.warn("Zoom #{z} grid scan finished but incomplete for #{@source_name}: actual=#{actual_tiles}, expected=#{expected}, errors=#{errors}, remaining=#{expected - actual_tiles - errors}")
-      update_status(z, 'stopped')
+      remaining = expected - actual_tiles - errors
+      LOGGER.error("Zoom #{z} grid scan finished but incomplete for #{@source_name}: actual=#{actual_tiles}, expected=#{expected}, errors=#{errors}, remaining=#{remaining}")
+      update_status(z, 'error')
     end
   end
 
