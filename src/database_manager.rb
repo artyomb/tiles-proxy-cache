@@ -76,14 +76,6 @@ module DatabaseManager
     )
   end
 
-  def cleanup_old_misses(route)
-    cutoff_time = Time.now.to_i - (route[:miss_timeout] || 300)
-    deleted = route[:db][:misses].where { ts <= cutoff_time }.delete
-    LOGGER.debug("Cleaned up #{deleted} old miss records") if deleted > 0
-  rescue => e
-    LOGGER.warn("Failed to cleanup old misses: #{e.message}")
-  end
-
   private
 
   def configure_sqlite_pragmas(db)
