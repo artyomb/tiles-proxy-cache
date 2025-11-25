@@ -16,10 +16,13 @@ module DatabaseManager
     
     integrate_wal_files(db, route_name)
     
-    MetadataManager.initialize_metadata(db, route, route_name)
+    MetadataManager.sync_metadata(db, route, route_name)
     
-    route[:content_type] = "image/#{db[:metadata].where(name: 'format').get(:value) || 'png'}"
-    route[:tile_size] = db[:metadata].where(name: 'tileSize').get(:value).to_i
+    format_value = db[:metadata].where(name: 'format').get(:value)
+    route[:content_type] = format_value ? "image/#{format_value}" : 'image/png'
+    
+    tile_size_value = db[:metadata].where(name: 'tileSize').get(:value)
+    route[:tile_size] = tile_size_value ? tile_size_value.to_i : nil
 
     route[:locks] = Hash.new { |h,k| h[k] = Mutex.new }
 
@@ -96,7 +99,7 @@ module DatabaseManager
   end
 
   def create_tables(db)
-    db.create_table?(:metadata){ String :name, null:false; String :value; index :name }
+    db.create_table?(:metadata){ String :name, null:false; String :value; unique :name }
     db.create_table?(:tiles){
       Integer :zoom_level,  null:false
       Integer :tile_column, null:false

@@ -4,26 +4,29 @@ require 'tempfile'
 module MetadataManager
   extend self
 
-  def initialize_metadata(db, route, route_name)
-    return if db[:metadata].count > 0
+  def sync_metadata(db, route, route_name)
+    config_metadata = route[:metadata] || {}
+    special_fields = %w[name format tileSize minzoom maxzoom].map(&:to_sym)
+    metadata_to_sync = config_metadata.reject { |k, _| special_fields.include?(k) }.transform_keys(&:to_s).transform_values(&:to_s)
 
-    format_and_size = route.dig(:metadata, :format) ? 
-      { format: route.dig(:metadata, :format), tile_size: (route.dig(:metadata, :tileSize) || 256).to_i } :
-      detect_format_and_tile_size(route)
+    metadata_to_sync['name'] = (config_metadata[:name] || format_name(route_name)).to_s
 
-    metadata = {
-      'name' => format_name(route_name),
-      'format' => format_and_size[:format],
-      'tileSize' => format_and_size[:tile_size].to_s,
-      'bounds' => route.dig(:metadata, :bounds) || '-180,-85.0511,180,85.0511',
-      'center' => route.dig(:metadata, :center) || '0,0,3',
-      'minzoom' => (route[:minzoom] || 1).to_s,
-      'maxzoom' => (route[:maxzoom] || 20).to_s,
-      'type' => route.dig(:metadata, :type) || 'baselayer',
-      'encoding' => route.dig(:metadata, :encoding) || ''
-    }
+    if config_metadata[:format]
+      metadata_to_sync['format'] = config_metadata[:format].to_s
+      metadata_to_sync['tileSize'] = (config_metadata[:tileSize] || config_metadata[:tile_size]).to_s if config_metadata[:tileSize] || config_metadata[:tile_size]
+    elsif (format_and_size = detect_format_and_tile_size(route))
+      metadata_to_sync['format'] = format_and_size[:format].to_s if format_and_size[:format]
+      metadata_to_sync['tileSize'] = format_and_size[:tile_size].to_s if format_and_size[:tile_size]
+    end
 
-    db[:metadata].multi_insert(metadata.map { |k, v| { name: k, value: v } })
+    %i[minzoom maxzoom].each do |key|
+      value = config_metadata[key] || route[key]
+      metadata_to_sync[key.to_s] = value.to_s if value
+    end
+
+    metadata_to_sync.each do |key, value|
+      db[:metadata].insert_conflict(target: :name, update: { value: Sequel[:excluded][:value] }).insert(name: key, value: value)
+    end
   end
 
   private
@@ -33,8 +36,12 @@ module MetadataManager
   end
 
   def detect_format_and_tile_size(route)
-    min_zoom = route[:minzoom] || 1
-    max_zoom = route[:maxzoom] || 20
+    config_metadata = route[:metadata] || {}
+    min_zoom = config_metadata[:minzoom] || route[:minzoom]
+    max_zoom = config_metadata[:maxzoom] || route[:maxzoom]
+    
+    return nil if min_zoom.nil? || max_zoom.nil?
+    
     range = max_zoom - min_zoom
     test_zooms = range <= 3 ? (min_zoom..max_zoom).to_a : 
                  [min_zoom, min_zoom + range / 3, min_zoom + range * 2 / 3, max_zoom].map(&:round).uniq
@@ -53,8 +60,8 @@ module MetadataManager
       end
     end
     
-    LOGGER.warn("Failed to detect format and tile size, using fallback")
-    { format: 'png', tile_size: 256 }
+    LOGGER.warn("Failed to detect format and tile size")
+    nil
   end
 
   def try_fetch_tile(route, zoom, x, y)
