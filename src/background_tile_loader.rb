@@ -375,13 +375,15 @@ class BackgroundTileLoader
   def zoom_complete?(z)
     expected = expected_tiles_count(z)
     actual_tiles = @route[:db][:tiles].where(zoom_level: z).count
+    errors = @route[:db][:misses].where(zoom_level: z).count
+    processed = actual_tiles + errors
 
     row = @route[:db][:tile_scan_progress].where(source: @source_name, zoom_level: z).first
     current_status = row&.dig(:status)
 
-    if actual_tiles >= expected
+    if processed >= expected
       true
-    elsif current_status == 'completed' && actual_tiles < expected
+    elsif current_status == 'completed' && processed < expected
       reset_zoom_progress(z)
       false
     elsif ['active', 'stopped'].include?(current_status)
