@@ -99,7 +99,17 @@ class BackgroundTileLoader
     final_x = @current_progress[z]&.dig(:x) || 0
     final_y = @current_progress[z]&.dig(:y) || 0
     save_progress(final_x, final_y, z)
-    update_status(z, 'completed')
+    
+    if zoom_complete?(z)
+      update_status(z, 'completed')
+      LOGGER.info("Zoom #{z} marked as completed for #{@source_name}")
+    else
+      expected = expected_tiles_count(z)
+      actual_tiles = @route[:db][:tiles].where(zoom_level: z).count
+      errors = @route[:db][:misses].where(zoom_level: z).count
+      LOGGER.warn("Zoom #{z} grid scan finished but incomplete for #{@source_name}: actual=#{actual_tiles}, expected=#{expected}, errors=#{errors}, remaining=#{expected - actual_tiles - errors}")
+      update_status(z, 'stopped')
+    end
   end
 
   def scan_zoom_grid(z, bounds)
