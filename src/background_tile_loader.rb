@@ -95,7 +95,6 @@ class BackgroundTileLoader
 
     scan_zoom_grid(z, bounds)
 
-    cleanup_zoom_misses(z)
     final_x = @current_progress[z]&.dig(:x) || 0
     final_y = @current_progress[z]&.dig(:y) || 0
     save_progress(final_x, final_y, z)
@@ -401,11 +400,6 @@ class BackgroundTileLoader
 
     min_x, min_y, max_x, max_y = bounds
     (max_x - min_x + 1) * (max_y - min_y + 1)
-  end
-
-  def cleanup_zoom_misses(z)
-    cutoff_time = Time.now.to_i - (@route[:miss_timeout] || 300)
-    @route[:db][:misses].where(zoom_level: z, ts: 0..cutoff_time).delete
   end
 
   def reset_zoom_progress(z)
