@@ -1,15 +1,25 @@
 # frozen_string_literal: true
 $VERBOSE = nil
 
+require 'simplecov'
+SimpleCov.start
+
+ENV['RACK_ENV'] = 'test'
+ENV['QUIET'] = 'true'
+
+module AutoscanDisabler
+  def start_scanning; end
+  def start_wal_checkpoint_thread; end
+end
+
+require_relative '../background_tile_loader'
+BackgroundTileLoader.prepend(AutoscanDisabler)
+
 require 'rspec-benchmark'
 require 'rack/test'
 require 'async/rspec'
 require 'rack/builder'
 
-require 'simplecov'
-SimpleCov.start
-
-ENV['DB_URL'] = 'sqlite::memory:'
 $app = Rack::Builder.parse_file(File.expand_path 'config.ru')
 
 module Rack::Test::JHelpers
@@ -25,9 +35,8 @@ RSpec.configure do |config|
   config.before(:each) do
     header 'Host', 'localhost'
   end
+
   config.after(:each) do
-    ROUTES.each do |_, route|
-      route[:client].close if route[:client]
-    end
+    ROUTES.each { |_, route| route[:client]&.close } if defined?(ROUTES)
   end
 end

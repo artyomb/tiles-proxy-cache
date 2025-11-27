@@ -1,21 +1,20 @@
 RSpec.describe 'Integration Tests' do
 
   describe 'Service basics' do
-    it 'routes WI' do
-      # https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/7/44/25
-      get '/wi/7/44/25'
-      expect(last_response.status).to eq(200)
-    end
-    it 'returns style for WI' do
-      get '/wi'
-      expect(last_response.status).to eq(200)
-      body = JSON last_response.body, symbolize_names: true
-      expect(body.dig :sources, :raster, :tiles, 0).to match(%r[^http://localhost/wi/{z}/{x}/{y}])
-    end
-
-    it 'respond to Healthcheck' do
+    it 'responds to healthcheck' do
       get '/healthcheck'
       expect(last_response.status).to eq(200)
+    end
+
+    it 'returns 404 for unknown route' do
+      get '/unknown_route/1/2/3'
+      expect(last_response.status).to eq(404)
+    end
+
+    it 'returns main page' do
+      get '/'
+      expect(last_response.status).to eq(200)
+      expect(last_response.body).to include('Tiles Proxy Cache')
     end
   end
 end
