@@ -97,9 +97,11 @@ module DatabaseManager
       Integer :tile_column, null:false
       Integer :tile_row,    null:false
       File    :tile_data,   null:false
+      Integer :generated,   default: 0  # 0=original, 1=generated, 2=needs_regeneration
       unique [:zoom_level,:tile_column,:tile_row], name: :tile_index
       index :zoom_level, name: :idx_tiles_zoom_level
       index [:zoom_level, Sequel.function(:length, :tile_data)], name: :idx_tiles_zoom_size
+      index [:zoom_level, :generated], name: :idx_tiles_zoom_generated
     }
     db.create_table?(:misses){ 
       Integer :zoom_level, null: false
