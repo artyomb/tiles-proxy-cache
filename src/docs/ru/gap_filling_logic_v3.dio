@@ -1,0 +1,207 @@
+<mxfile host="drawio-plugin" modified="2025-11-28T07:38:57.987Z" agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36" etag="eJk1eTDug4jqGKH7TmRb" version="22.1.22" type="embed">
+  <diagram name="Tile Reconstruction Logic v3" id="tile-reconstruction-logic-v3">
+    <mxGraphModel dx="826" dy="592" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1400" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="title" value="&lt;font style=&quot;font-size: 26px;&quot;&gt;TileReconstructor v3 — Ленивый алгоритм&lt;/font&gt;&lt;br&gt;&lt;font style=&quot;font-size: 14px;&quot;&gt;Реконструкция тайловой пирамиды: 2 этапа, без рекурсии&lt;/font&gt;" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=24;fontStyle=1" parent="1" vertex="1">
+          <mxGeometry x="400" y="20" width="800" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="note-principles" value="&lt;div style=&quot;text-align: left;&quot;&gt;&lt;b&gt;КЛЮЧЕВЫЕ ПРИНЦИПЫ:&lt;/b&gt;&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;─────────────────&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;1. Оригинал неприкосновенен&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;2. Генерация только если все 4 дочерних&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;3. Нет рекурсии — только пометка&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;4. Изменения &quot;всплывают&quot; естественно&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;5. Родитель-miss не помечается&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;6. Зависит от BackgroundTileLoader&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;align=center;fontSize=11" parent="1" vertex="1">
+          <mxGeometry x="40" y="40" width="240" height="160" as="geometry" />
+        </mxCell>
+        <mxCell id="schedule" value="Периодический запуск&lt;br&gt;(после BackgroundTileLoader)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;fontSize=12" parent="1" vertex="1">
+          <mxGeometry x="640" y="100" width="220" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="loop-zooms" value="&lt;b&gt;FOR z = (maxzoom-1) DOWNTO minzoom&lt;/b&gt;&lt;br&gt;&lt;br&gt;Пример: 17 → 16 → ... → 1&lt;br&gt;(на maxzoom нет дочерних)" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11" parent="1" vertex="1">
+          <mxGeometry x="590" y="200" width="320" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="stage1-title" value="&lt;font style=&quot;font-size: 16px;&quot;&gt;Этап 1: Кандидаты на пересборку&lt;/font&gt;" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=14;fontStyle=1" parent="1" vertex="1">
+          <mxGeometry x="240" y="330" width="300" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="find-candidates" value="&lt;div style=&quot;text-align: left;&quot;&gt;Найти кандидатов для зума Z&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;─────────────────&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;SELECT * FROM tiles&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;WHERE zoom_level = Z&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;AND generated = 2&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;align=center;fontSize=11" parent="1" vertex="1">
+          <mxGeometry x="260" y="370" width="220" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="check-children-cand" value="Все 4 дочерних&lt;br&gt;тайла существуют?&lt;br&gt;(Z+1)" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;align=center;fontSize=11" parent="1" vertex="1">
+          <mxGeometry x="270" y="510" width="200" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="skip-cand" value="Пропуск&lt;br&gt;(оставить generated=2)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;align=center;fontSize=11" parent="1" vertex="1">
+          <mxGeometry x="520" y="525" width="150" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="regenerate-cand" value="&lt;div style=&quot;text-align: left;&quot;&gt;Перегенерация тайла&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;─────────────────&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;• Downsampling 4 дочерних&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;• UPDATE generated = 1&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;align=center;fontSize=11" parent="1" vertex="1">
+          <mxGeometry x="260" y="640" width="220" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="mark-parent-1" value="&lt;div style=&quot;text-align: left;&quot;&gt;Пометить родителя (Z-1)&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;─────────────────&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;• Нет в tiles → пропуск&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;&amp;nbsp; (если в misses — обработается)&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;• generated=0 → пропуск&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;• generated=1 → UPDATE = 2&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;align=center;fontSize=11" parent="1" vertex="1">
+          <mxGeometry x="260" y="780" width="220" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="stage2-title" value="&lt;font style=&quot;font-size: 16px;&quot;&gt;Этап 2: Обработка misses (дыр)&lt;/font&gt;" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=14;fontStyle=1" parent="1" vertex="1">
+          <mxGeometry x="1010" y="330" width="300" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="find-misses" value="&lt;div style=&quot;text-align: left;&quot;&gt;Найти misses для зума Z&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;─────────────────&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;SELECT * FROM misses&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;WHERE zoom_level = Z&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;AND status = 404&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;AND NOT EXISTS in tiles&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;align=center;fontSize=11" parent="1" vertex="1">
+          <mxGeometry x="1030" y="370" width="220" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="check-children-miss" value="Все 4 дочерних&lt;br&gt;тайла существуют?&lt;br&gt;(Z+1)" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;align=center;fontSize=11" parent="1" vertex="1">
+          <mxGeometry x="1040" y="510" width="200" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="skip-miss" value="Пропуск&lt;br&gt;(нет данных для генерации)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;align=center;fontSize=11" parent="1" vertex="1">
+          <mxGeometry x="1290" y="525" width="170" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="generate-miss" value="&lt;div style=&quot;text-align: left;&quot;&gt;Генерация тайла&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;─────────────────&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;• Downsampling 4 дочерних&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;• INSERT generated = 1&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;• DELETE FROM misses&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;align=center;fontSize=11" parent="1" vertex="1">
+          <mxGeometry x="1030" y="640" width="220" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="mark-parent-2" value="&lt;div style=&quot;text-align: left;&quot;&gt;Пометить родителя (Z-1)&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;─────────────────&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;• Нет в tiles → пропуск&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;&amp;nbsp; (если в misses — обработается)&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;• generated=0 → пропуск&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;• generated=1 → UPDATE = 2&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;align=center;fontSize=11" parent="1" vertex="1">
+          <mxGeometry x="1030" y="780" width="220" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="next-zoom" value="Следующий зум&lt;br&gt;z = z - 1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;align=center;fontSize=11;fontStyle=1" parent="1" vertex="1">
+          <mxGeometry x="640" y="910" width="220" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="end" value="ГОТОВО&lt;br&gt;(z &lt; minzoom)" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=12;fontStyle=1" parent="1" vertex="1">
+          <mxGeometry x="680" y="1010" width="140" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="db-title" value="СТРУКТУРА БАЗЫ ДАННЫХ" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=16;fontStyle=1" parent="1" vertex="1">
+          <mxGeometry x="160" y="1090" width="300" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="db-tiles" value="&lt;div style=&quot;text-align: left;&quot;&gt;&lt;b&gt;Таблица: tiles&lt;/b&gt;&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;─────────────────&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;• zoom_level (PK)&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;• tile_column (PK)&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;• tile_row (PK) — TMS&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;• tile_data (BLOB)&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;• &lt;b&gt;generated&lt;/b&gt; (INTEGER)&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;&lt;span style=&quot;background-color: initial;&quot;&gt;0 = оригинал&lt;/span&gt;&lt;br&gt;&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;  1 = сгенерированный&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;  2 = needs_regeneration&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;align=center;fontFamily=Courier New;fontSize=11" parent="1" vertex="1">
+          <mxGeometry x="80" y="1130" width="220" height="170" as="geometry" />
+        </mxCell>
+        <mxCell id="db-misses" value="&lt;div style=&quot;text-align: left;&quot;&gt;&lt;b&gt;Таблица: misses&lt;/b&gt;&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;─────────────────&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;• zoom_level (PK)&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;• tile_column (PK)&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;• tile_row (PK) — TMS&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;• ts (timestamp)&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;• status (404/500)&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;• reason, details&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;&lt;br&gt;&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;&lt;i&gt;Заполняется BackgroundTileLoader&lt;/i&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;align=center;fontFamily=Courier New;fontSize=11" parent="1" vertex="1">
+          <mxGeometry x="330" y="1130" width="220" height="170" as="geometry" />
+        </mxCell>
+        <mxCell id="downsample-info" value="&lt;div style=&quot;text-align: left;&quot;&gt;&lt;b&gt;Downsampling&lt;/b&gt;&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;─────────────────&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;• Terrain: TerrainDownsampleFFI&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;  (average, maximum, nearest)&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;• Растр: Vips&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;  (bilinear interpolation)&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;align=center;fontSize=11" parent="1" vertex="1">
+          <mxGeometry x="1195" y="160" width="200" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="arr-schedule-loop" value="" style="endArrow=classic;html=1;rounded=0;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;strokeWidth=2" parent="1" source="schedule" target="loop-zooms" edge="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="750" y="450" as="sourcePoint" />
+            <mxPoint x="800" y="400" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="arr-loop-stage1" value="process_zoom(z)" style="endArrow=classic;html=1;rounded=0;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;strokeColor=#9673a6;strokeWidth=2;dashed=1" parent="1" source="loop-zooms" target="find-candidates" edge="1">
+          <mxGeometry x="-0.632" width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="750" y="450" as="sourcePoint" />
+            <mxPoint x="800" y="400" as="targetPoint" />
+            <Array as="points">
+              <mxPoint x="420" y="250" />
+              <mxPoint x="370" y="250" />
+            </Array>
+            <mxPoint x="-1" as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="arr-loop-stage2" value="process_zoom(z)" style="endArrow=classic;html=1;rounded=0;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;strokeColor=#9673a6;strokeWidth=2;dashed=1" parent="1" source="loop-zooms" target="find-misses" edge="1">
+          <mxGeometry x="-0.6667" width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="750" y="450" as="sourcePoint" />
+            <mxPoint x="800" y="400" as="targetPoint" />
+            <Array as="points">
+              <mxPoint x="1140" y="250" />
+            </Array>
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="arr-cand-check" value="" style="endArrow=classic;html=1;rounded=0;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" parent="1" source="find-candidates" target="check-children-cand" edge="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="870" y="430" as="sourcePoint" />
+            <mxPoint x="920" y="380" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="arr-cand-skip" value="Нет" style="endArrow=classic;html=1;rounded=0;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="check-children-cand" target="skip-cand" edge="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="870" y="430" as="sourcePoint" />
+            <mxPoint x="920" y="380" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="arr-cand-regen" value="Да" style="endArrow=classic;html=1;rounded=0;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" parent="1" source="check-children-cand" target="regenerate-cand" edge="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="870" y="430" as="sourcePoint" />
+            <mxPoint x="920" y="380" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="arr-regen-mark" value="" style="endArrow=classic;html=1;rounded=0;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" parent="1" source="regenerate-cand" target="mark-parent-1" edge="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="870" y="430" as="sourcePoint" />
+            <mxPoint x="920" y="380" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="arr-miss-check" value="" style="endArrow=classic;html=1;rounded=0;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" parent="1" source="find-misses" target="check-children-miss" edge="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="920" y="430" as="sourcePoint" />
+            <mxPoint x="970" y="380" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="arr-miss-skip" value="Нет" style="endArrow=classic;html=1;rounded=0;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="check-children-miss" target="skip-miss" edge="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="920" y="430" as="sourcePoint" />
+            <mxPoint x="970" y="380" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="arr-miss-gen" value="Да" style="endArrow=classic;html=1;rounded=0;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" parent="1" source="check-children-miss" target="generate-miss" edge="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="920" y="430" as="sourcePoint" />
+            <mxPoint x="970" y="380" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="arr-gen-mark" value="" style="endArrow=classic;html=1;rounded=0;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" parent="1" source="generate-miss" target="mark-parent-2" edge="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="920" y="430" as="sourcePoint" />
+            <mxPoint x="970" y="380" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="arr-stage1-next" value="" style="endArrow=classic;html=1;rounded=0;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;strokeColor=#82b366;strokeWidth=2;dashed=1" parent="1" source="mark-parent-1" target="next-zoom" edge="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="750" y="450" as="sourcePoint" />
+            <mxPoint x="800" y="400" as="targetPoint" />
+            <Array as="points">
+              <mxPoint x="370" y="935" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="arr-stage2-next" value="" style="endArrow=classic;html=1;rounded=0;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;strokeColor=#82b366;strokeWidth=2;dashed=1" parent="1" source="mark-parent-2" target="next-zoom" edge="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="750" y="450" as="sourcePoint" />
+            <mxPoint x="800" y="400" as="targetPoint" />
+            <Array as="points">
+              <mxPoint x="1140" y="935" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="arr-next-loop" value="&lt;font style=&quot;font-size: 13px;&quot;&gt;z &amp;gt;= minzoom&lt;/font&gt;" style="endArrow=classic;html=1;rounded=0;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;strokeColor=#d6b656;strokeWidth=2" parent="1" source="next-zoom" target="loop-zooms" edge="1">
+          <mxGeometry x="-0.1803" width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="750" y="450" as="sourcePoint" />
+            <mxPoint x="800" y="400" as="targetPoint" />
+            <Array as="points" />
+            <mxPoint y="1" as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="arr-next-end" value="" style="endArrow=classic;html=1;rounded=0;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;strokeWidth=2;fillColor=#d5e8d4;strokeColor=#82b366;" parent="1" source="next-zoom" target="end" edge="1">
+          <mxGeometry x="1" y="160" width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="750" y="450" as="sourcePoint" />
+            <mxPoint x="800" y="400" as="targetPoint" />
+            <mxPoint y="9" as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="conn-tiles-cand" value="generated=2" style="endArrow=classic;html=1;rounded=0;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;strokeColor=#9673a6;strokeWidth=2;dashed=1" parent="1" source="db-tiles" target="find-candidates" edge="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="750" y="450" as="sourcePoint" />
+            <mxPoint x="800" y="400" as="targetPoint" />
+            <Array as="points">
+              <mxPoint x="190" y="420" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="conn-misses-stage2" value="status=404" style="endArrow=classic;html=1;rounded=0;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;strokeColor=#9673a6;strokeWidth=2;dashed=1" parent="1" source="db-misses" target="find-misses" edge="1">
+          <mxGeometry x="0.8568" width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="670" y="1130" as="sourcePoint" />
+            <mxPoint x="1310" y="400" as="targetPoint" />
+            <Array as="points">
+              <mxPoint x="1480" y="1215" />
+              <mxPoint x="1480" y="420" />
+            </Array>
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="complexity-note" value="&lt;div style=&quot;text-align: left;&quot;&gt;&lt;b&gt;Характеристики:&lt;/b&gt;&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;─────────────────&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;• Сложность: O(candidates + misses)&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;• Нет рекурсии&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;• Идемпотентность&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;• Можно прервать и продолжить&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;align=center;fontSize=11" parent="1" vertex="1">
+          <mxGeometry x="1195" y="40" width="200" height="110" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

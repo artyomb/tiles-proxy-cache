@@ -36,6 +36,11 @@ RSpec.describe TileReconstructor do
         .to raise_error(ArgumentError, /non-empty/)
     end
 
+    it 'raises error for unknown kernel' do
+      expect { described_class.downsample_raster_tiles(children, kernel: :invalid) }
+        .to raise_error(ArgumentError, /Unknown kernel/)
+    end
+
     it 'preserves tile order: TL red, TR green, BL blue, BR yellow' do
       children = [
         create_colored_png(255, 0, 0),    # TL: red
