@@ -2,6 +2,7 @@
 
 require_relative 'spec_helper'
 require_relative '../tile_reconstructor'
+require 'sequel'
 
 RSpec.describe TileReconstructor do
   def create_test_png(size = 256)
@@ -118,6 +119,56 @@ RSpec.describe TileReconstructor do
 
       expect(decode_mapbox_elevation(*pixel_at(result, 64, 64).map(&:to_i))).to be_within(0.2).of(0)
       expect(decode_mapbox_elevation(*pixel_at(result, 192, 192).map(&:to_i))).to be_within(0.2).of(300)
+    end
+  end
+
+  describe '.get_children_data' do
+    let(:db) { Sequel.connect('sqlite:/') }
+    let(:tile1) { create_colored_png(255, 0, 0) }    # red
+    let(:tile2) { create_colored_png(0, 255, 0) }  # green
+    let(:tile3) { create_colored_png(0, 0, 255) }  # blue
+    let(:tile4) { create_colored_png(255, 255, 0) } # yellow
+
+    before do
+      db.create_table?(:tiles) do
+        Integer :zoom_level, null: false
+        Integer :tile_column, null: false
+        Integer :tile_row, null: false
+        File :tile_data, null: false
+        Integer :generated, default: 0
+        unique [:zoom_level, :tile_column, :tile_row], name: :tile_index
+      end
+    end
+
+    after do
+      db.disconnect
+    end
+
+    it 'returns 4 children data in correct order when all exist' do
+      parent_z = 5
+      parent_x = 10
+      parent_y = 20
+
+      db[:tiles].insert(zoom_level: 6, tile_column: 20, tile_row: 40, tile_data: Sequel.blob(tile1))
+      db[:tiles].insert(zoom_level: 6, tile_column: 21, tile_row: 40, tile_data: Sequel.blob(tile2))
+      db[:tiles].insert(zoom_level: 6, tile_column: 20, tile_row: 41, tile_data: Sequel.blob(tile3))
+      db[:tiles].insert(zoom_level: 6, tile_column: 21, tile_row: 41, tile_data: Sequel.blob(tile4))
+
+      result = described_class.get_children_data(db, parent_z, parent_x, parent_y)
+
+      expect(result).to eq([tile1, tile2, tile3, tile4])
+    end
+
+    it 'returns nil when not all children exist' do
+      parent_z = 5
+      parent_x = 10
+      parent_y = 20
+
+      db[:tiles].insert(zoom_level: 6, tile_column: 20, tile_row: 40, tile_data: Sequel.blob(tile1))
+      db[:tiles].insert(zoom_level: 6, tile_column: 21, tile_row: 40, tile_data: Sequel.blob(tile2))
+      # Missing 2 children
+
+      expect(described_class.get_children_data(db, parent_z, parent_x, parent_y)).to be_nil
     end
   end
 end

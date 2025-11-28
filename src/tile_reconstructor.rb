@@ -1,4 +1,5 @@
 require 'vips'
+require 'sequel'
 require_relative 'ext/terrain_downsample_extension'
 
 module TileReconstructor
@@ -38,6 +39,29 @@ module TileReconstructor
     combined_png = combined.write_to_buffer('.png')
 
     TerrainDownsampleFFI.downsample_png(combined_png, 256, encoding, method)
+  end
+
+  # Retrieves tile data for all 4 child tiles in order: TL, TR, BL, BR
+  # Returns nil if not all children exist (usable in guard clauses)
+  # @param db [Sequel::Database] database connection
+  # @param z [Integer] parent zoom level
+  # @param parent_x [Integer] parent tile column
+  # @param parent_y [Integer] parent tile row (TMS)
+  # @return [Array<String>, nil] 4 tile blobs: [TL, TR, BL, BR] or nil if not all exist
+  def get_children_data(db, z, parent_x, parent_y)
+    child_z = z + 1
+    children_coords = [
+      [child_z, 2 * parent_x, 2 * parent_y],      # TL
+      [child_z, 2 * parent_x + 1, 2 * parent_y], # TR
+      [child_z, 2 * parent_x, 2 * parent_y + 1],  # BL
+      [child_z, 2 * parent_x + 1, 2 * parent_y + 1] # BR
+    ]
+
+    children_data = children_coords.map do |cz, cx, cy|
+      db[:tiles].where(zoom_level: cz, tile_column: cx, tile_row: cy).get(:tile_data)
+    end
+
+    children_data.any?(&:nil?) ? nil : children_data
   end
 
   private
