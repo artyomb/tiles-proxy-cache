@@ -32,6 +32,25 @@ RSpec.describe TileReconstructor do
     -10000.0 + (r * 256 * 256 + g * 256 + b) * 0.1
   end
 
+  shared_context 'with database' do
+    let(:db) { Sequel.connect('sqlite:/') }
+
+    before do
+      db.create_table?(:tiles) do
+        Integer :zoom_level, null: false
+        Integer :tile_column, null: false
+        Integer :tile_row, null: false
+        File :tile_data, null: false
+        Integer :generated, default: 0
+        unique [:zoom_level, :tile_column, :tile_row], name: :tile_index
+      end
+    end
+
+    after do
+      db.disconnect
+    end
+  end
+
   describe '.downsample_raster_tiles' do
     let(:children) { Array.new(4) { create_test_png } }
 
@@ -123,26 +142,12 @@ RSpec.describe TileReconstructor do
   end
 
   describe '.get_children_data' do
-    let(:db) { Sequel.connect('sqlite:/') }
+    include_context 'with database'
+
     let(:tile1) { create_colored_png(255, 0, 0) }    # red
     let(:tile2) { create_colored_png(0, 255, 0) }  # green
     let(:tile3) { create_colored_png(0, 0, 255) }  # blue
     let(:tile4) { create_colored_png(255, 255, 0) } # yellow
-
-    before do
-      db.create_table?(:tiles) do
-        Integer :zoom_level, null: false
-        Integer :tile_column, null: false
-        Integer :tile_row, null: false
-        File :tile_data, null: false
-        Integer :generated, default: 0
-        unique [:zoom_level, :tile_column, :tile_row], name: :tile_index
-      end
-    end
-
-    after do
-      db.disconnect
-    end
 
     it 'returns 4 children data in correct order when all exist' do
       parent_z = 5
@@ -169,6 +174,88 @@ RSpec.describe TileReconstructor do
       # Missing 2 children
 
       expect(described_class.get_children_data(db, parent_z, parent_x, parent_y)).to be_nil
+    end
+  end
+
+  describe '.mark_parent_candidate' do
+    include_context 'with database'
+
+    let(:tile_data) { create_test_png }
+
+    it 'marks generated parent (generated=1) as candidate (generated=2)' do
+      child_z = 6
+      child_x = 20
+      child_y = 40
+      parent_z = 5
+      parent_x = 10
+      parent_y = 20
+
+      db[:tiles].insert(
+        zoom_level: parent_z, tile_column: parent_x, tile_row: parent_y,
+        tile_data: Sequel.blob(tile_data), generated: 1
+      )
+
+      described_class.mark_parent_candidate(db, child_z, child_x, child_y)
+
+      parent = db[:tiles].where(zoom_level: parent_z, tile_column: parent_x, tile_row: parent_y).first
+      expect(parent[:generated]).to eq(2)
+    end
+
+    it 'does not mark original parent (generated=0 or nil)' do
+      child_z = 6
+      child_x = 20
+      child_y = 40
+      parent_z = 5
+      parent_x = 10
+      parent_y = 20
+
+      [0, nil].each do |generated_value|
+        db[:tiles].where(zoom_level: parent_z, tile_column: parent_x, tile_row: parent_y).delete
+        db[:tiles].insert(
+          zoom_level: parent_z, tile_column: parent_x, tile_row: parent_y,
+          tile_data: Sequel.blob(tile_data), generated: generated_value
+        )
+
+        described_class.mark_parent_candidate(db, child_z, child_x, child_y)
+
+        parent = db[:tiles].where(zoom_level: parent_z, tile_column: parent_x, tile_row: parent_y).first
+        expect(parent[:generated]).to eq(generated_value)
+      end
+    end
+
+    it 'does not change already marked candidate (generated=2)' do
+      child_z = 6
+      child_x = 20
+      child_y = 40
+      parent_z = 5
+      parent_x = 10
+      parent_y = 20
+
+      db[:tiles].insert(
+        zoom_level: parent_z, tile_column: parent_x, tile_row: parent_y,
+        tile_data: Sequel.blob(tile_data), generated: 2
+      )
+
+      described_class.mark_parent_candidate(db, child_z, child_x, child_y)
+
+      parent = db[:tiles].where(zoom_level: parent_z, tile_column: parent_x, tile_row: parent_y).first
+      expect(parent[:generated]).to eq(2)
+    end
+
+    it 'skips when parent does not exist in tiles' do
+      child_z = 6
+      child_x = 20
+      child_y = 40
+
+      expect do
+        described_class.mark_parent_candidate(db, child_z, child_x, child_y)
+      end.not_to raise_error
+
+      parent_z = 5
+      parent_x = 10
+      parent_y = 20
+      parent = db[:tiles].where(zoom_level: parent_z, tile_column: parent_x, tile_row: parent_y).first
+      expect(parent).to be_nil
     end
   end
 end

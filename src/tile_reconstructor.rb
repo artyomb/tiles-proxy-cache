@@ -64,6 +64,33 @@ module TileReconstructor
     children_data.any?(&:nil?) ? nil : children_data
   end
 
+  # Marks parent tile as regeneration candidate if it's generated
+  # Skips original tiles (generated=0/nil) and already marked candidates (generated=2)
+  # @param db [Sequel::Database] database connection
+  # @param child_z [Integer] child zoom level
+  # @param child_x [Integer] child tile column
+  # @param child_y [Integer] child tile row (TMS)
+  # @return [void]
+  def mark_parent_candidate(db, child_z, child_x, child_y)
+    parent_z = child_z - 1
+    parent_x = child_x / 2
+    parent_y = child_y / 2
+
+    parent_dataset = db[:tiles].where(
+      zoom_level: parent_z,
+      tile_column: parent_x,
+      tile_row: parent_y
+    )
+
+    parent = parent_dataset.first
+    return unless parent
+
+    generated = parent[:generated]
+    return unless generated == 1
+
+    parent_dataset.update(generated: 2)
+  end
+
   private
 
   def combine_4_tiles(children_data)
