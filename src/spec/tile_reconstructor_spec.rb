@@ -44,6 +44,18 @@ RSpec.describe TileReconstructor do
         Integer :generated, default: 0
         unique [:zoom_level, :tile_column, :tile_row], name: :tile_index
       end
+
+      db.create_table?(:misses) do
+        Integer :zoom_level, null: false
+        Integer :tile_column, null: false
+        Integer :tile_row, null: false
+        Integer :ts, null: false
+        String :reason
+        String :details
+        Integer :status
+        File :response_body
+        primary_key [:zoom_level, :tile_column, :tile_row], name: :misses_pk
+      end
     end
 
     after do
@@ -144,9 +156,9 @@ RSpec.describe TileReconstructor do
   describe '.get_children_data' do
     include_context 'with database'
 
-    let(:tile1) { create_colored_png(255, 0, 0) }    # red
-    let(:tile2) { create_colored_png(0, 255, 0) }  # green
-    let(:tile3) { create_colored_png(0, 0, 255) }  # blue
+    let(:tile1) { create_colored_png(255, 0, 0) } # red
+    let(:tile2) { create_colored_png(0, 255, 0) } # green
+    let(:tile3) { create_colored_png(0, 0, 255) } # blue
     let(:tile4) { create_colored_png(255, 255, 0) } # yellow
 
     it 'returns 4 children data in correct order when all exist' do
@@ -319,6 +331,82 @@ RSpec.describe TileReconstructor do
 
       tile = db[:tiles].where(zoom_level: z, tile_column: x, tile_row: y).first
       expect(tile[:generated]).to eq(2)
+    end
+  end
+
+  describe '.process_miss_records' do
+    include_context 'with database'
+
+    let(:opts) { { method: :downsample_raster_tiles, args: { format: 'png', kernel: :linear }, minzoom: 1 } }
+
+    it 'generates tile and removes miss when all children exist' do
+      z = 5
+      x = 10
+      y = 20
+
+      db[:misses].insert(zoom_level: z, tile_column: x, tile_row: y, ts: Time.now.to_i, status: 404)
+      child_tile = create_test_png
+      (0..3).each do |i|
+        db[:tiles].insert(zoom_level: z + 1, tile_column: 2 * x + (i % 2), tile_row: 2 * y + (i / 2), tile_data: Sequel.blob(child_tile))
+      end
+
+      described_class.process_miss_records(z, db, opts)
+
+      expect(db[:tiles].where(zoom_level: z, tile_column: x, tile_row: y).get(:generated)).to eq(1)
+      expect(db[:misses].where(zoom_level: z, tile_column: x, tile_row: y).count).to eq(0)
+    end
+
+    it 'skips miss when not all children exist' do
+      z = 5
+      x = 10
+      y = 20
+
+      db[:misses].insert(zoom_level: z, tile_column: x, tile_row: y, ts: Time.now.to_i, status: 404)
+      db[:tiles].insert(zoom_level: z + 1, tile_column: 2 * x, tile_row: 2 * y, tile_data: Sequel.blob(create_test_png))
+
+      described_class.process_miss_records(z, db, opts)
+
+      expect(db[:tiles].where(zoom_level: z, tile_column: x, tile_row: y).count).to eq(0)
+      expect(db[:misses].where(zoom_level: z, tile_column: x, tile_row: y).count).to eq(1)
+    end
+
+    it 'skips miss when tile already exists in tiles' do
+      z = 5
+      x = 10
+      y = 20
+
+      db[:tiles].insert(zoom_level: z, tile_column: x, tile_row: y, tile_data: Sequel.blob(create_test_png), generated: 0)
+      db[:misses].insert(zoom_level: z, tile_column: x, tile_row: y, ts: Time.now.to_i, status: 404)
+
+      described_class.process_miss_records(z, db, opts)
+
+      expect(db[:misses].where(zoom_level: z, tile_column: x, tile_row: y).count).to eq(1)
+    end
+
+    it 'only processes misses with status 404' do
+      z = 5
+      x = 10
+      y = 20
+
+      db[:misses].insert(zoom_level: z, tile_column: x, tile_row: y, ts: Time.now.to_i, status: 500)
+      db[:misses].insert(zoom_level: z, tile_column: x + 1, tile_row: y, ts: Time.now.to_i, status: 404)
+
+      child_tile = create_test_png
+      # Create children for miss at x (status 500 - should be skipped)
+      (0..3).each do |i|
+        db[:tiles].insert(zoom_level: z + 1, tile_column: 2 * x + (i % 2), tile_row: 2 * y + (i / 2), tile_data: Sequel.blob(child_tile))
+      end
+      # Create children for miss at x+1 (status 404 - should be processed)
+      (0..3).each do |i|
+        db[:tiles].insert(zoom_level: z + 1, tile_column: 2 * (x + 1) + (i % 2), tile_row: 2 * y + (i / 2), tile_data: Sequel.blob(child_tile))
+      end
+
+      described_class.process_miss_records(z, db, opts)
+
+      expect(db[:tiles].where(zoom_level: z, tile_column: x, tile_row: y).count).to eq(0)
+      expect(db[:tiles].where(zoom_level: z, tile_column: x + 1, tile_row: y).count).to eq(1)
+      expect(db[:misses].where(zoom_level: z, tile_column: x, tile_row: y).count).to eq(1)
+      expect(db[:misses].where(zoom_level: z, tile_column: x + 1, tile_row: y).count).to eq(0)
     end
   end
 end

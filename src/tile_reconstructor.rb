@@ -51,9 +51,9 @@ module TileReconstructor
   def get_children_data(db, z, parent_x, parent_y)
     child_z = z + 1
     children_coords = [
-      [child_z, 2 * parent_x, 2 * parent_y],      # TL
+      [child_z, 2 * parent_x, 2 * parent_y], # TL
       [child_z, 2 * parent_x + 1, 2 * parent_y], # TR
-      [child_z, 2 * parent_x, 2 * parent_y + 1],  # BL
+      [child_z, 2 * parent_x, 2 * parent_y + 1], # BL
       [child_z, 2 * parent_x + 1, 2 * parent_y + 1] # BR
     ]
 
@@ -79,7 +79,7 @@ module TileReconstructor
       output_format_config = gap_filling[:output_format]
       format = output_format_config[:type]
       kernel = gap_filling[:raster_method].to_sym
-      
+
       { method: :downsample_raster_tiles, args: { format: format, kernel: kernel, **output_format_config }, minzoom: minzoom }
     end
   end
@@ -118,23 +118,66 @@ module TileReconstructor
   # @param downsample_opts [Hash] from build_downsample_opts
   def process_regeneration_candidates(z, db, downsample_opts)
     minzoom = downsample_opts[:minzoom]
-    
+
     db[:tiles]
       .where(zoom_level: z, generated: 2)
       .select(:zoom_level, :tile_column, :tile_row)
       .each do |tile|
-        children_data = get_children_data(db, z, tile[:tile_column], tile[:tile_row])
-        next unless children_data
+      children_data = get_children_data(db, z, tile[:tile_column], tile[:tile_row])
+      next unless children_data
 
-        new_data = send(downsample_opts[:method], children_data, **downsample_opts[:args])
+      new_data = send(downsample_opts[:method], children_data, **downsample_opts[:args])
+      db[:tiles].where(
+        zoom_level: z,
+        tile_column: tile[:tile_column],
+        tile_row: tile[:tile_row]
+      ).update(tile_data: Sequel.blob(new_data), generated: 1)
+
+      mark_parent_candidate(db, z, tile[:tile_column], tile[:tile_row]) if z > minzoom
+    end
+  end
+
+  # Processes miss records for zoom level z
+  # Generates tiles from children if all 4 exist, removes from misses, marks parent as candidate if z > minzoom
+  # @param z [Integer] zoom level
+  # @param db [Sequel::Database] database
+  # @param downsample_opts [Hash] from build_downsample_opts
+  def process_miss_records(z, db, downsample_opts)
+    minzoom = downsample_opts[:minzoom]
+
+    db[:misses]
+      .where(zoom_level: z, status: 404)
+      .where do
+      Sequel.~(
         db[:tiles].where(
-          zoom_level: z,
-          tile_column: tile[:tile_column],
-          tile_row: tile[:tile_row]
-        ).update(tile_data: Sequel.blob(new_data), generated: 1)
+          zoom_level: Sequel[:misses][:zoom_level],
+          tile_column: Sequel[:misses][:tile_column],
+          tile_row: Sequel[:misses][:tile_row]
+        ).exists
+      )
+    end
+      .select(:zoom_level, :tile_column, :tile_row)
+      .each do |miss|
+      children_data = get_children_data(db, z, miss[:tile_column], miss[:tile_row])
+      next unless children_data
 
-        mark_parent_candidate(db, z, tile[:tile_column], tile[:tile_row]) if z > minzoom
-      end
+      new_data = send(downsample_opts[:method], children_data, **downsample_opts[:args])
+      db[:tiles].insert(
+        zoom_level: z,
+        tile_column: miss[:tile_column],
+        tile_row: miss[:tile_row],
+        tile_data: Sequel.blob(new_data),
+        generated: 1
+      )
+
+      db[:misses].where(
+        zoom_level: z,
+        tile_column: miss[:tile_column],
+        tile_row: miss[:tile_row]
+      ).delete
+
+      mark_parent_candidate(db, z, miss[:tile_column], miss[:tile_row]) if z > minzoom
+    end
   end
 
   private
