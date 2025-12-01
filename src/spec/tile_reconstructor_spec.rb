@@ -409,4 +409,41 @@ RSpec.describe TileReconstructor do
       expect(db[:misses].where(zoom_level: z, tile_column: x + 1, tile_row: y).count).to eq(0)
     end
   end
+
+  describe '.process_zoom' do
+    include_context 'with database'
+
+    let(:opts) { { method: :downsample_raster_tiles, args: { format: 'png', kernel: :linear }, minzoom: 1 } }
+
+    it 'processes both candidates and misses for given zoom' do
+      z = 5
+      child_tile = create_test_png
+
+      # Setup: candidate at (10, 20) and miss at (11, 20)
+      db[:tiles].insert(zoom_level: z, tile_column: 10, tile_row: 20, tile_data: Sequel.blob(create_test_png), generated: 2)
+      db[:misses].insert(zoom_level: z, tile_column: 11, tile_row: 20, ts: Time.now.to_i, status: 404)
+
+      # Children for candidate (10, 20)
+      [[20, 40], [21, 40], [20, 41], [21, 41]].each do |cx, cy|
+        db[:tiles].insert(zoom_level: z + 1, tile_column: cx, tile_row: cy, tile_data: Sequel.blob(child_tile))
+      end
+
+      # Children for miss (11, 20)
+      [[22, 40], [23, 40], [22, 41], [23, 41]].each do |cx, cy|
+        db[:tiles].insert(zoom_level: z + 1, tile_column: cx, tile_row: cy, tile_data: Sequel.blob(child_tile))
+      end
+
+      described_class.process_zoom(z, db, opts)
+
+      # Candidate should be regenerated
+      expect(db[:tiles].where(zoom_level: z, tile_column: 10, tile_row: 20).get(:generated)).to eq(1)
+      # Miss should be converted to tile
+      expect(db[:tiles].where(zoom_level: z, tile_column: 11, tile_row: 20).get(:generated)).to eq(1)
+      expect(db[:misses].where(zoom_level: z, tile_column: 11, tile_row: 20).count).to eq(0)
+    end
+
+    it 'works when no candidates or misses exist' do
+      expect { described_class.process_zoom(5, db, opts) }.not_to raise_error
+    end
+  end
 end

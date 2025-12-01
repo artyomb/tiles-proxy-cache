@@ -180,6 +180,19 @@ module TileReconstructor
     end
   end
 
+  # Processes single zoom level: regeneration candidates first, then misses
+  # @param z [Integer] zoom level to process
+  # @param db [Sequel::Database] database connection
+  # @param downsample_opts [Hash] from build_downsample_opts
+  def process_zoom(z, db, downsample_opts)
+    LOGGER.info("TileReconstructor: processing zoom #{z}")
+
+    process_regeneration_candidates(z, db, downsample_opts)
+    process_miss_records(z, db, downsample_opts)
+
+    LOGGER.debug("TileReconstructor: zoom #{z} completed")
+  end
+
   private
 
   def combine_4_tiles(children_data)
