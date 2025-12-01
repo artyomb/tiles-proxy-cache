@@ -258,4 +258,67 @@ RSpec.describe TileReconstructor do
       expect(parent).to be_nil
     end
   end
+
+  describe '.build_downsample_opts' do
+    it 'returns raster opts structure' do
+      route = { minzoom: 1, gap_filling: { output_format: { type: 'png' }, raster_method: 'linear' } }
+      opts = described_class.build_downsample_opts(route)
+
+      expect(opts[:method]).to eq(:downsample_raster_tiles)
+      expect(opts[:args][:format]).to eq('png')
+      expect(opts[:minzoom]).to eq(1)
+    end
+
+    it 'returns terrain opts structure' do
+      route = { minzoom: 0, metadata: { encoding: 'mapbox' }, gap_filling: { terrain_method: 'average' } }
+      opts = described_class.build_downsample_opts(route)
+
+      expect(opts[:method]).to eq(:downsample_terrain_tiles)
+      expect(opts[:args][:encoding]).to eq('mapbox')
+      expect(opts[:minzoom]).to eq(0)
+    end
+  end
+
+  describe '.process_regeneration_candidates' do
+    include_context 'with database'
+
+    let(:opts) { { method: :downsample_raster_tiles, args: { format: 'png', kernel: :linear }, minzoom: 1 } }
+
+    it 'regenerates candidate when all children exist' do
+      z = 5
+      x = 10
+      y = 20
+
+      db[:tiles].insert(zoom_level: z, tile_column: x, tile_row: y, tile_data: Sequel.blob(create_test_png), generated: 2)
+
+      child_z = z + 1
+      child_tile = create_test_png
+      db[:tiles].insert(zoom_level: child_z, tile_column: 2 * x, tile_row: 2 * y, tile_data: Sequel.blob(child_tile))
+      db[:tiles].insert(zoom_level: child_z, tile_column: 2 * x + 1, tile_row: 2 * y, tile_data: Sequel.blob(child_tile))
+      db[:tiles].insert(zoom_level: child_z, tile_column: 2 * x, tile_row: 2 * y + 1, tile_data: Sequel.blob(child_tile))
+      db[:tiles].insert(zoom_level: child_z, tile_column: 2 * x + 1, tile_row: 2 * y + 1, tile_data: Sequel.blob(child_tile))
+
+      described_class.process_regeneration_candidates(z, db, opts)
+
+      tile = db[:tiles].where(zoom_level: z, tile_column: x, tile_row: y).first
+      expect(tile[:generated]).to eq(1)
+    end
+
+    it 'skips candidate when not all children exist' do
+      z = 5
+      x = 10
+      y = 20
+
+      db[:tiles].insert(zoom_level: z, tile_column: x, tile_row: y, tile_data: Sequel.blob(create_test_png), generated: 2)
+
+      child_z = z + 1
+      db[:tiles].insert(zoom_level: child_z, tile_column: 2 * x, tile_row: 2 * y, tile_data: Sequel.blob(create_test_png))
+      db[:tiles].insert(zoom_level: child_z, tile_column: 2 * x + 1, tile_row: 2 * y, tile_data: Sequel.blob(create_test_png))
+
+      described_class.process_regeneration_candidates(z, db, opts)
+
+      tile = db[:tiles].where(zoom_level: z, tile_column: x, tile_row: y).first
+      expect(tile[:generated]).to eq(2)
+    end
+  end
 end

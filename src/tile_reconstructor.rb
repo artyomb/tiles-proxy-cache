@@ -64,6 +64,26 @@ module TileReconstructor
     children_data.any?(&:nil?) ? nil : children_data
   end
 
+  # Builds downsample options from route configuration
+  # @param route [Hash] route with gap_filling, metadata, minzoom
+  # @return [Hash] { method: Symbol, args: Hash, minzoom: Integer }
+  def build_downsample_opts(route)
+    encoding = route.dig(:metadata, :encoding)
+    gap_filling = route[:gap_filling]
+    minzoom = route[:minzoom]
+
+    if TERRAIN_ENCODINGS.include?(encoding)
+      method = gap_filling[:terrain_method]
+      { method: :downsample_terrain_tiles, args: { encoding: encoding, method: method }, minzoom: minzoom }
+    else
+      output_format_config = gap_filling[:output_format]
+      format = output_format_config[:type]
+      kernel = gap_filling[:raster_method].to_sym
+      
+      { method: :downsample_raster_tiles, args: { format: format, kernel: kernel, **output_format_config }, minzoom: minzoom }
+    end
+  end
+
   # Marks parent tile as regeneration candidate if it's generated
   # Skips original tiles (generated=0/nil) and already marked candidates (generated=2)
   # @param db [Sequel::Database] database connection
@@ -89,6 +109,32 @@ module TileReconstructor
     return unless generated == 1
 
     parent_dataset.update(generated: 2)
+  end
+
+  # Processes regeneration candidates (generated=2) for zoom level z
+  # Regenerates from children if all 4 exist, marks parent as candidate if z > minzoom
+  # @param z [Integer] zoom level
+  # @param db [Sequel::Database] database
+  # @param downsample_opts [Hash] from build_downsample_opts
+  def process_regeneration_candidates(z, db, downsample_opts)
+    minzoom = downsample_opts[:minzoom]
+    
+    db[:tiles]
+      .where(zoom_level: z, generated: 2)
+      .select(:zoom_level, :tile_column, :tile_row)
+      .each do |tile|
+        children_data = get_children_data(db, z, tile[:tile_column], tile[:tile_row])
+        next unless children_data
+
+        new_data = send(downsample_opts[:method], children_data, **downsample_opts[:args])
+        db[:tiles].where(
+          zoom_level: z,
+          tile_column: tile[:tile_column],
+          tile_row: tile[:tile_row]
+        ).update(tile_data: Sequel.blob(new_data), generated: 1)
+
+        mark_parent_candidate(db, z, tile[:tile_column], tile[:tile_row]) if z > minzoom
+      end
   end
 
   private
