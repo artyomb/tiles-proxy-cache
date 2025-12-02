@@ -140,16 +140,17 @@ RSpec.describe TileReconstructor do
 
     it 'preserves elevation with mapbox encoding' do
       children = [
-        create_terrain_png_mapbox(0),
-        create_terrain_png_mapbox(100),
-        create_terrain_png_mapbox(200),
-        create_terrain_png_mapbox(300)
+        create_terrain_png_mapbox(0),    # TL
+        create_terrain_png_mapbox(100),  # TR
+        create_terrain_png_mapbox(200),  # BL
+        create_terrain_png_mapbox(300)   # BR
       ]
 
       result = described_class.downsample_terrain_tiles(children, encoding: 'mapbox')
 
-      expect(decode_mapbox_elevation(*pixel_at(result, 64, 64).map(&:to_i))).to be_within(0.2).of(0)
-      expect(decode_mapbox_elevation(*pixel_at(result, 192, 192).map(&:to_i))).to be_within(0.2).of(300)
+      # After combine_4_tiles: (64,64)=BL, (192,192)=TR
+      expect(decode_mapbox_elevation(*pixel_at(result, 64, 64).map(&:to_i))).to be_within(0.2).of(200)
+      expect(decode_mapbox_elevation(*pixel_at(result, 192, 192).map(&:to_i))).to be_within(0.2).of(100)
     end
   end
 
@@ -444,6 +445,43 @@ RSpec.describe TileReconstructor do
 
     it 'works when no candidates or misses exist' do
       expect { described_class.process_zoom(5, db, opts) }.not_to raise_error
+    end
+  end
+
+  describe '.fill_gaps' do
+    include_context 'with database'
+
+    let(:base_route) do
+      { db: db, gap_filling: { output_format: { type: 'png' }, raster_method: 'linear' } }
+    end
+
+    def track_processed_zooms(route)
+      processed_zooms = []
+      allow(described_class).to receive(:process_zoom) { |z, _, _| processed_zooms << z }
+      described_class.fill_gaps(route)
+      processed_zooms
+    end
+
+    it 'processes all zooms from maxzoom-1 down to minzoom' do
+      route = base_route.merge(minzoom: 2, maxzoom: 5)
+      expect(track_processed_zooms(route)).to eq([4, 3, 2])
+    end
+
+    it 'handles edge cases' do
+      expect(track_processed_zooms(base_route.merge(minzoom: 5, maxzoom: 6))).to eq([5])
+      expect(track_processed_zooms(base_route.merge(minzoom: 5, maxzoom: 5))).to be_empty
+    end
+
+    it 'continues processing even if some zoom fails' do
+      route = base_route.merge(minzoom: 1, maxzoom: 4)
+      processed_zooms = []
+      allow(described_class).to receive(:process_zoom) do |z, _, _|
+        processed_zooms << z
+        raise StandardError, 'test error' if z == 2
+      end
+
+      expect { described_class.fill_gaps(route) }.not_to raise_error
+      expect(processed_zooms).to eq([3, 2, 1])
     end
   end
 end

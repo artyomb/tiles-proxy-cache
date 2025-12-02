@@ -86,6 +86,34 @@ module TileReconstructor
     end
   end
 
+  # Fills gaps in tile pyramid by generating missing tiles from children
+  # Processes all zooms from maxzoom-1 down to minzoom
+  # @param route [Hash] route configuration with db, minzoom, maxzoom, gap_filling
+  # @return [void]
+  def fill_gaps(route)
+    db = route[:db]
+    minzoom = route[:minzoom]
+    maxzoom = route[:maxzoom]
+
+    start_zoom = maxzoom - 1
+    return if start_zoom < minzoom
+
+    downsample_opts = build_downsample_opts(route)
+
+    LOGGER.info("TileReconstructor: starting gap filling from zoom #{start_zoom} to #{minzoom}")
+
+    start_zoom.downto(minzoom) do |z|
+      begin
+        process_zoom(z, db, downsample_opts)
+      rescue => e
+        LOGGER.error("TileReconstructor: failed to process zoom #{z}: #{e.message}")
+        LOGGER.debug("TileReconstructor: backtrace: #{e.backtrace.join("\n")}")
+      end
+    end
+
+    LOGGER.info("TileReconstructor: gap filling completed")
+  end
+
   # Marks parent tile as regeneration candidate if it's generated
   # Skips original tiles (generated=0/nil) and already marked candidates (generated=2)
   # @param db [Sequel::Database] database connection
