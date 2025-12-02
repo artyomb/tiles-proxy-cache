@@ -80,7 +80,9 @@ module TileReconstructor
       format = output_format_config[:type]
       kernel = gap_filling[:raster_method].to_sym
 
-      { method: :downsample_raster_tiles, args: { format: format, kernel: kernel, **output_format_config }, minzoom: minzoom }
+      vips_options = output_format_config.reject { |k, _| k == :type || k == 'type' }
+
+      { method: :downsample_raster_tiles, args: { format: format, kernel: kernel, **vips_options }, minzoom: minzoom }
     end
   end
 
@@ -146,7 +148,7 @@ module TileReconstructor
     minzoom = downsample_opts[:minzoom]
 
     db[:misses]
-      .where(zoom_level: z, status: 404)
+      .where(zoom_level: z, status: [403, 404])
       .where do
       Sequel.~(
         db[:tiles].where(
