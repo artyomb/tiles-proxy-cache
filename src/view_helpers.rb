@@ -76,12 +76,19 @@ module ViewHelpers
       .group(:zoom_level)
       .to_hash(:zoom_level, :count) : {}
 
+    generated_by_zoom = db.table_exists?(:tiles) ? db[:tiles]
+      .select(:zoom_level, Sequel.function(:count, :zoom_level).as(:count))
+      .where(zoom_level: min_zoom..max_zoom)
+      .where(Sequel[:generated] > 0)
+      .group(:zoom_level)
+      .to_hash(:zoom_level, :count) : {}
+
     (min_zoom..max_zoom).map do |z|
       possible = tiles_per_zoom(z, route)
       cached = cached_by_zoom[z] || 0
       errors = errors_by_zoom[z] || 0
+      generated = generated_by_zoom[z] || 0
       remaining = [possible - cached - errors, 0].max
-      generated = 0
 
       percentage = possible > 0 ? ((cached.to_f / possible) * 100).round(1) : 0
       autoscan_status = autoscan_statuses[z] || 'waiting'
