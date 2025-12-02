@@ -235,12 +235,12 @@ class TileReconstructor
     end
   end
 
-  # Processes miss records (404/403) for given zoom
+  # Processes miss records (404/403/204) for given zoom
   def process_miss_records(z, db, downsample_opts)
     minzoom = downsample_opts[:minzoom]
 
     db[:misses]
-      .where(zoom_level: z, status: [403, 404])
+      .where(zoom_level: z, status: [403, 404, 204])
       .where do
       Sequel.~(
         db[:tiles].where(
