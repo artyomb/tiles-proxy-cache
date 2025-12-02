@@ -128,14 +128,19 @@ module TileReconstructor
       children_data = get_children_data(db, z, tile[:tile_column], tile[:tile_row])
       next unless children_data
 
-      new_data = send(downsample_opts[:method], children_data, **downsample_opts[:args])
-      db[:tiles].where(
-        zoom_level: z,
-        tile_column: tile[:tile_column],
-        tile_row: tile[:tile_row]
-      ).update(tile_data: Sequel.blob(new_data), generated: 1)
+      begin
+        new_data = send(downsample_opts[:method], children_data, **downsample_opts[:args])
+        db[:tiles].where(
+          zoom_level: z,
+          tile_column: tile[:tile_column],
+          tile_row: tile[:tile_row]
+        ).update(tile_data: Sequel.blob(new_data), generated: 1)
 
-      mark_parent_candidate(db, z, tile[:tile_column], tile[:tile_row]) if z > minzoom
+        mark_parent_candidate(db, z, tile[:tile_column], tile[:tile_row]) if z > minzoom
+      rescue => e
+        LOGGER.warn("TileReconstructor: failed to regenerate tile #{z}/#{tile[:tile_column]}/#{tile[:tile_row]}: #{e.message}")
+        next
+      end
     end
   end
 
@@ -163,22 +168,27 @@ module TileReconstructor
       children_data = get_children_data(db, z, miss[:tile_column], miss[:tile_row])
       next unless children_data
 
-      new_data = send(downsample_opts[:method], children_data, **downsample_opts[:args])
-      db[:tiles].insert(
-        zoom_level: z,
-        tile_column: miss[:tile_column],
-        tile_row: miss[:tile_row],
-        tile_data: Sequel.blob(new_data),
-        generated: 1
-      )
+      begin
+        new_data = send(downsample_opts[:method], children_data, **downsample_opts[:args])
+        db[:tiles].insert(
+          zoom_level: z,
+          tile_column: miss[:tile_column],
+          tile_row: miss[:tile_row],
+          tile_data: Sequel.blob(new_data),
+          generated: 1
+        )
 
-      db[:misses].where(
-        zoom_level: z,
-        tile_column: miss[:tile_column],
-        tile_row: miss[:tile_row]
-      ).delete
+        db[:misses].where(
+          zoom_level: z,
+          tile_column: miss[:tile_column],
+          tile_row: miss[:tile_row]
+        ).delete
 
-      mark_parent_candidate(db, z, miss[:tile_column], miss[:tile_row]) if z > minzoom
+        mark_parent_candidate(db, z, miss[:tile_column], miss[:tile_row]) if z > minzoom
+      rescue => e
+        LOGGER.warn("TileReconstructor: failed to generate tile #{z}/#{miss[:tile_column]}/#{miss[:tile_row]}: #{e.message}")
+        next
+      end
     end
   end
 
