@@ -210,8 +210,10 @@ module TileReconstructor
   def combine_4_tiles(children_data)
     images = children_data.map { |d| Vips::Image.new_from_buffer(d, '') }
 
-    top = images[0].join(images[1], :horizontal)
-    bottom = images[2].join(images[3], :horizontal)
-    top.join(bottom, :vertical)
+    top_row = images[0].join(images[1], :horizontal)
+    bottom_row = images[2].join(images[3], :horizontal)
+    # Swap rows: Vips join(:vertical) places first arg on top, but TMS Y increases southward
+    # So we put bottom_row first to get correct visual order (north on top)
+    bottom_row.join(top_row, :vertical)
   end
 end

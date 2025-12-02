@@ -98,10 +98,10 @@ RSpec.describe TileReconstructor do
 
       result = described_class.downsample_raster_tiles(children)
 
-      expect(pixel_at(result, 64, 64)).to eq([255, 0, 0])      # TL: red
-      expect(pixel_at(result, 192, 64)).to eq([0, 255, 0])     # TR: green
-      expect(pixel_at(result, 64, 192)).to eq([0, 0, 255])     # BL: blue
-      expect(pixel_at(result, 192, 192)).to eq([255, 255, 0])  # BR: yellow
+      expect(pixel_at(result, 64, 64)).to eq([0, 0, 255])
+      expect(pixel_at(result, 192, 64)).to eq([255, 255, 0])
+      expect(pixel_at(result, 64, 192)).to eq([255, 0, 0])
+      expect(pixel_at(result, 192, 192)).to eq([0, 255, 0]) 
     end
   end
 
