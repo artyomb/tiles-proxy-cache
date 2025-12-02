@@ -254,3 +254,60 @@ Example_PreCached:
     daily_limit: 50000
     max_scan_zoom: 5
 
+# Example 9: Gap Filling - automatic tile reconstruction from child tiles
+# Generates missing tiles by downsampling 4 child tiles into 1 parent tile
+# Supports both raster (PNG/WebP/JPEG) and terrain (DEM) sources
+Example_GapFilling:
+  path: "/gapfill/:z/:x/:y"
+  target: "https://example.com/tiles/{z}/{x}/{y}.png"
+  minzoom: 1
+  maxzoom: 18
+  miss_timeout: 300
+  query_params:
+    apikey: "example-api-key-here"
+  headers:
+    request:
+      User-Agent: "Mozilla/5.0"
+    response:
+      Cache-Control:
+        max-age:
+          hit: 86400
+          miss: 300
+  mbtiles_file: "example_gapfill.mbtiles"
+  metadata:
+    bounds: "-180,-85.0511,180,85.0511"
+    center: "0,0,3"
+    type: "baselayer"                     # baselayer | overlay
+    format: "png"                         # png | webp | jpeg (output format)
+    tileSize: "256"                       # 256 | 512
+    # encoding: "mapbox"                  # For terrain tiles: mapbox | terrarium
+  gap_filling:                            # Gap filling configuration (enables tile reconstruction)
+    schedule:
+      time: "03:00"                       # UTC time for automatic reconstruction (HH:MM format)
+                                          # If specified, reconstructor runs daily at this time
+    output_format:
+      type: "png"                         # Output format: png | webp | jpeg (always png for terrain)
+      # PNG options (only if type: "png"):
+      # compression: 6                    # 0-9, higher = smaller file but slower (default: 6)
+      # WebP options (only if type: "webp"):
+      # lossless: true                    # true = lossless (use effort), false = lossy (use quality)
+      # effort: 4                         # 0-9, higher = smaller but slower (for lossless, default: 4)
+      # quality: 85                       # 0-100, higher = better quality (for lossy, default: 75)
+      # JPEG options (only if type: "jpeg"):
+      # quality: 90                       # 0-100, higher = better quality (default: 85)
+    raster_method: "linear"               # For raster sources (satellite, maps): 
+                                          # linear - balanced quality/speed
+                                          # nearest - fastest, blocky
+                                          # cubic - good quality
+                                          # mitchell - very good quality
+                                          # lanczos2 - high quality
+                                          # lanczos3 - highest quality, slowest
+    # terrain_method: "average"           # For terrain/DEM sources (use when metadata.encoding is set):
+                                          # average - smooth elevation
+                                          # nearest - preserve exact values
+                                          # maximum - preserve peaks
+  autoscan:
+    enabled: false
+    daily_limit: 10000
+    max_scan_zoom: 12
+

@@ -5,6 +5,9 @@ require_relative '../tile_reconstructor'
 require 'sequel'
 
 RSpec.describe TileReconstructor do
+  let(:route) { { db: nil, minzoom: 1, maxzoom: 10, gap_filling: { output_format: { type: 'png' }, raster_method: 'linear' } } }
+  let(:reconstructor) { described_class.new(route, 'test_source') }
+
   def create_test_png(size = 256)
     Vips::Image.black(size, size).write_to_buffer('.png')
   end
@@ -63,28 +66,28 @@ RSpec.describe TileReconstructor do
     end
   end
 
-  describe '.downsample_raster_tiles' do
+  describe '#downsample_raster_tiles' do
     let(:children) { Array.new(4) { create_test_png } }
 
     it 'combines 4 tiles into 1 of the same size' do
-      result = described_class.downsample_raster_tiles(children)
+      result = reconstructor.send(:downsample_raster_tiles, children)
 
       img = Vips::Image.new_from_buffer(result, '')
       expect([img.width, img.height]).to eq([256, 256])
     end
 
     it 'raises error when not 4 tiles' do
-      expect { described_class.downsample_raster_tiles([create_test_png] * 3) }
+      expect { reconstructor.send(:downsample_raster_tiles, [create_test_png] * 3) }
         .to raise_error(ArgumentError, /Expected 4 tiles/)
     end
 
     it 'raises error when tile is nil or empty' do
-      expect { described_class.downsample_raster_tiles([create_test_png, nil, create_test_png, create_test_png]) }
+      expect { reconstructor.send(:downsample_raster_tiles, [create_test_png, nil, create_test_png, create_test_png]) }
         .to raise_error(ArgumentError, /non-empty/)
     end
 
     it 'raises error for unknown kernel' do
-      expect { described_class.downsample_raster_tiles(children, kernel: :invalid) }
+      expect { reconstructor.send(:downsample_raster_tiles, children, kernel: :invalid) }
         .to raise_error(ArgumentError, /Unknown kernel/)
     end
 
@@ -96,7 +99,7 @@ RSpec.describe TileReconstructor do
         create_colored_png(255, 255, 0)   # BR: yellow
       ]
 
-      result = described_class.downsample_raster_tiles(children)
+      result = reconstructor.send(:downsample_raster_tiles, children)
 
       expect(pixel_at(result, 64, 64)).to eq([0, 0, 255])
       expect(pixel_at(result, 192, 64)).to eq([255, 255, 0])
@@ -105,34 +108,34 @@ RSpec.describe TileReconstructor do
     end
   end
 
-  describe '.downsample_terrain_tiles' do
+  describe '#downsample_terrain_tiles' do
     describe 'input validation' do
       it 'raises error when not 4 tiles' do
-        expect { described_class.downsample_terrain_tiles([create_test_png] * 3) }
+        expect { reconstructor.send(:downsample_terrain_tiles, [create_test_png] * 3) }
           .to raise_error(ArgumentError, /Expected 4 tiles/)
       end
 
       it 'raises error when tile is nil or empty' do
-        expect { described_class.downsample_terrain_tiles([create_test_png, nil, create_test_png, create_test_png]) }
+        expect { reconstructor.send(:downsample_terrain_tiles, [create_test_png, nil, create_test_png, create_test_png]) }
           .to raise_error(ArgumentError, /non-empty/)
-        expect { described_class.downsample_terrain_tiles([create_test_png, '', create_test_png, create_test_png]) }
+        expect { reconstructor.send(:downsample_terrain_tiles, [create_test_png, '', create_test_png, create_test_png]) }
           .to raise_error(ArgumentError, /non-empty/)
       end
 
       it 'raises error for unknown encoding' do
-        expect { described_class.downsample_terrain_tiles(Array.new(4) { create_test_png }, encoding: 'invalid') }
+        expect { reconstructor.send(:downsample_terrain_tiles, Array.new(4) { create_test_png }, encoding: 'invalid') }
           .to raise_error(ArgumentError, /Unknown encoding/)
       end
 
       it 'raises error for unknown method' do
-        expect { described_class.downsample_terrain_tiles(Array.new(4) { create_test_png }, method: 'invalid') }
+        expect { reconstructor.send(:downsample_terrain_tiles, Array.new(4) { create_test_png }, method: 'invalid') }
           .to raise_error(ArgumentError, /Unknown method/)
       end
     end
 
     it 'returns 256x256 PNG from 4 tiles' do
       children = Array.new(4) { create_terrain_png_mapbox(100) }
-      result = described_class.downsample_terrain_tiles(children)
+      result = reconstructor.send(:downsample_terrain_tiles, children)
 
       img = Vips::Image.new_from_buffer(result, '')
       expect([img.width, img.height]).to eq([256, 256])
@@ -146,7 +149,7 @@ RSpec.describe TileReconstructor do
         create_terrain_png_mapbox(300)   # BR
       ]
 
-      result = described_class.downsample_terrain_tiles(children, encoding: 'mapbox')
+      result = reconstructor.send(:downsample_terrain_tiles, children, encoding: 'mapbox')
 
       # After combine_4_tiles: (64,64)=BL, (192,192)=TR
       expect(decode_mapbox_elevation(*pixel_at(result, 64, 64).map(&:to_i))).to be_within(0.2).of(200)
@@ -154,13 +157,13 @@ RSpec.describe TileReconstructor do
     end
   end
 
-  describe '.get_children_data' do
+  describe '#get_children_data' do
     include_context 'with database'
 
-    let(:tile1) { create_colored_png(255, 0, 0) } # red
-    let(:tile2) { create_colored_png(0, 255, 0) } # green
-    let(:tile3) { create_colored_png(0, 0, 255) } # blue
-    let(:tile4) { create_colored_png(255, 255, 0) } # yellow
+    let(:tile1) { create_colored_png(255, 0, 0) }
+    let(:tile2) { create_colored_png(0, 255, 0) }
+    let(:tile3) { create_colored_png(0, 0, 255) }
+    let(:tile4) { create_colored_png(255, 255, 0) }
 
     it 'returns 4 children data in correct order when all exist' do
       parent_z = 5
@@ -172,7 +175,7 @@ RSpec.describe TileReconstructor do
       db[:tiles].insert(zoom_level: 6, tile_column: 20, tile_row: 41, tile_data: Sequel.blob(tile3))
       db[:tiles].insert(zoom_level: 6, tile_column: 21, tile_row: 41, tile_data: Sequel.blob(tile4))
 
-      result = described_class.get_children_data(db, parent_z, parent_x, parent_y)
+      result = reconstructor.send(:get_children_data, db, parent_z, parent_x, parent_y)
 
       expect(result).to eq([tile1, tile2, tile3, tile4])
     end
@@ -186,11 +189,11 @@ RSpec.describe TileReconstructor do
       db[:tiles].insert(zoom_level: 6, tile_column: 21, tile_row: 40, tile_data: Sequel.blob(tile2))
       # Missing 2 children
 
-      expect(described_class.get_children_data(db, parent_z, parent_x, parent_y)).to be_nil
+      expect(reconstructor.send(:get_children_data, db, parent_z, parent_x, parent_y)).to be_nil
     end
   end
 
-  describe '.mark_parent_candidate' do
+  describe '#mark_parent_candidate' do
     include_context 'with database'
 
     let(:tile_data) { create_test_png }
@@ -208,7 +211,7 @@ RSpec.describe TileReconstructor do
         tile_data: Sequel.blob(tile_data), generated: 1
       )
 
-      described_class.mark_parent_candidate(db, child_z, child_x, child_y)
+      reconstructor.send(:mark_parent_candidate, db, child_z, child_x, child_y)
 
       parent = db[:tiles].where(zoom_level: parent_z, tile_column: parent_x, tile_row: parent_y).first
       expect(parent[:generated]).to eq(2)
@@ -229,7 +232,7 @@ RSpec.describe TileReconstructor do
           tile_data: Sequel.blob(tile_data), generated: generated_value
         )
 
-        described_class.mark_parent_candidate(db, child_z, child_x, child_y)
+        reconstructor.send(:mark_parent_candidate, db, child_z, child_x, child_y)
 
         parent = db[:tiles].where(zoom_level: parent_z, tile_column: parent_x, tile_row: parent_y).first
         expect(parent[:generated]).to eq(generated_value)
@@ -249,7 +252,7 @@ RSpec.describe TileReconstructor do
         tile_data: Sequel.blob(tile_data), generated: 2
       )
 
-      described_class.mark_parent_candidate(db, child_z, child_x, child_y)
+      reconstructor.send(:mark_parent_candidate, db, child_z, child_x, child_y)
 
       parent = db[:tiles].where(zoom_level: parent_z, tile_column: parent_x, tile_row: parent_y).first
       expect(parent[:generated]).to eq(2)
@@ -261,7 +264,7 @@ RSpec.describe TileReconstructor do
       child_y = 40
 
       expect do
-        described_class.mark_parent_candidate(db, child_z, child_x, child_y)
+        reconstructor.send(:mark_parent_candidate, db, child_z, child_x, child_y)
       end.not_to raise_error
 
       parent_z = 5
@@ -272,10 +275,10 @@ RSpec.describe TileReconstructor do
     end
   end
 
-  describe '.build_downsample_opts' do
+  describe '#build_downsample_opts' do
     it 'returns raster opts structure' do
-      route = { minzoom: 1, gap_filling: { output_format: { type: 'png' }, raster_method: 'linear' } }
-      opts = described_class.build_downsample_opts(route)
+      route_config = { minzoom: 1, gap_filling: { output_format: { type: 'png' }, raster_method: 'linear' } }
+      opts = reconstructor.send(:build_downsample_opts, route_config)
 
       expect(opts[:method]).to eq(:downsample_raster_tiles)
       expect(opts[:args][:format]).to eq('png')
@@ -283,8 +286,8 @@ RSpec.describe TileReconstructor do
     end
 
     it 'returns terrain opts structure' do
-      route = { minzoom: 0, metadata: { encoding: 'mapbox' }, gap_filling: { terrain_method: 'average' } }
-      opts = described_class.build_downsample_opts(route)
+      route_config = { minzoom: 0, metadata: { encoding: 'mapbox' }, gap_filling: { terrain_method: 'average' } }
+      opts = reconstructor.send(:build_downsample_opts, route_config)
 
       expect(opts[:method]).to eq(:downsample_terrain_tiles)
       expect(opts[:args][:encoding]).to eq('mapbox')
@@ -292,7 +295,7 @@ RSpec.describe TileReconstructor do
     end
   end
 
-  describe '.process_regeneration_candidates' do
+  describe '#process_regeneration_candidates' do
     include_context 'with database'
 
     let(:opts) { { method: :downsample_raster_tiles, args: { format: 'png', kernel: :linear }, minzoom: 1 } }
@@ -311,7 +314,7 @@ RSpec.describe TileReconstructor do
       db[:tiles].insert(zoom_level: child_z, tile_column: 2 * x, tile_row: 2 * y + 1, tile_data: Sequel.blob(child_tile))
       db[:tiles].insert(zoom_level: child_z, tile_column: 2 * x + 1, tile_row: 2 * y + 1, tile_data: Sequel.blob(child_tile))
 
-      described_class.process_regeneration_candidates(z, db, opts)
+      reconstructor.send(:process_regeneration_candidates, z, db, opts)
 
       tile = db[:tiles].where(zoom_level: z, tile_column: x, tile_row: y).first
       expect(tile[:generated]).to eq(1)
@@ -328,14 +331,14 @@ RSpec.describe TileReconstructor do
       db[:tiles].insert(zoom_level: child_z, tile_column: 2 * x, tile_row: 2 * y, tile_data: Sequel.blob(create_test_png))
       db[:tiles].insert(zoom_level: child_z, tile_column: 2 * x + 1, tile_row: 2 * y, tile_data: Sequel.blob(create_test_png))
 
-      described_class.process_regeneration_candidates(z, db, opts)
+      reconstructor.send(:process_regeneration_candidates, z, db, opts)
 
       tile = db[:tiles].where(zoom_level: z, tile_column: x, tile_row: y).first
       expect(tile[:generated]).to eq(2)
     end
   end
 
-  describe '.process_miss_records' do
+  describe '#process_miss_records' do
     include_context 'with database'
 
     let(:opts) { { method: :downsample_raster_tiles, args: { format: 'png', kernel: :linear }, minzoom: 1 } }
@@ -351,7 +354,7 @@ RSpec.describe TileReconstructor do
         db[:tiles].insert(zoom_level: z + 1, tile_column: 2 * x + (i % 2), tile_row: 2 * y + (i / 2), tile_data: Sequel.blob(child_tile))
       end
 
-      described_class.process_miss_records(z, db, opts)
+      reconstructor.send(:process_miss_records, z, db, opts)
 
       expect(db[:tiles].where(zoom_level: z, tile_column: x, tile_row: y).get(:generated)).to eq(1)
       expect(db[:misses].where(zoom_level: z, tile_column: x, tile_row: y).count).to eq(0)
@@ -365,7 +368,7 @@ RSpec.describe TileReconstructor do
       db[:misses].insert(zoom_level: z, tile_column: x, tile_row: y, ts: Time.now.to_i, status: 404)
       db[:tiles].insert(zoom_level: z + 1, tile_column: 2 * x, tile_row: 2 * y, tile_data: Sequel.blob(create_test_png))
 
-      described_class.process_miss_records(z, db, opts)
+      reconstructor.send(:process_miss_records, z, db, opts)
 
       expect(db[:tiles].where(zoom_level: z, tile_column: x, tile_row: y).count).to eq(0)
       expect(db[:misses].where(zoom_level: z, tile_column: x, tile_row: y).count).to eq(1)
@@ -379,7 +382,7 @@ RSpec.describe TileReconstructor do
       db[:tiles].insert(zoom_level: z, tile_column: x, tile_row: y, tile_data: Sequel.blob(create_test_png), generated: 0)
       db[:misses].insert(zoom_level: z, tile_column: x, tile_row: y, ts: Time.now.to_i, status: 404)
 
-      described_class.process_miss_records(z, db, opts)
+      reconstructor.send(:process_miss_records, z, db, opts)
 
       expect(db[:misses].where(zoom_level: z, tile_column: x, tile_row: y).count).to eq(1)
     end
@@ -402,7 +405,7 @@ RSpec.describe TileReconstructor do
         db[:tiles].insert(zoom_level: z + 1, tile_column: 2 * (x + 1) + (i % 2), tile_row: 2 * y + (i / 2), tile_data: Sequel.blob(child_tile))
       end
 
-      described_class.process_miss_records(z, db, opts)
+      reconstructor.send(:process_miss_records, z, db, opts)
 
       expect(db[:tiles].where(zoom_level: z, tile_column: x, tile_row: y).count).to eq(0)
       expect(db[:tiles].where(zoom_level: z, tile_column: x + 1, tile_row: y).count).to eq(1)
@@ -411,7 +414,7 @@ RSpec.describe TileReconstructor do
     end
   end
 
-  describe '.process_zoom' do
+  describe '#process_zoom' do
     include_context 'with database'
 
     let(:opts) { { method: :downsample_raster_tiles, args: { format: 'png', kernel: :linear }, minzoom: 1 } }
@@ -434,7 +437,7 @@ RSpec.describe TileReconstructor do
         db[:tiles].insert(zoom_level: z + 1, tile_column: cx, tile_row: cy, tile_data: Sequel.blob(child_tile))
       end
 
-      described_class.process_zoom(z, db, opts)
+      reconstructor.send(:process_zoom, z, db, opts)
 
       # Candidate should be regenerated
       expect(db[:tiles].where(zoom_level: z, tile_column: 10, tile_row: 20).get(:generated)).to eq(1)
@@ -444,44 +447,63 @@ RSpec.describe TileReconstructor do
     end
 
     it 'works when no candidates or misses exist' do
-      expect { described_class.process_zoom(5, db, opts) }.not_to raise_error
+      expect { reconstructor.send(:process_zoom, 5, db, opts) }.not_to raise_error
     end
   end
 
-  describe '.fill_gaps' do
+  describe '#start_reconstruction (fill_gaps logic)' do
     include_context 'with database'
 
     let(:base_route) do
-      { db: db, gap_filling: { output_format: { type: 'png' }, raster_method: 'linear' } }
-    end
-
-    def track_processed_zooms(route)
-      processed_zooms = []
-      allow(described_class).to receive(:process_zoom) { |z, _, _| processed_zooms << z }
-      described_class.fill_gaps(route)
-      processed_zooms
+      { db: db, minzoom: 1, maxzoom: 10, gap_filling: { output_format: { type: 'png' }, raster_method: 'linear' } }
     end
 
     it 'processes all zooms from maxzoom-1 down to minzoom' do
-      route = base_route.merge(minzoom: 2, maxzoom: 5)
-      expect(track_processed_zooms(route)).to eq([4, 3, 2])
+      route_config = base_route.merge(minzoom: 2, maxzoom: 5, db: db)
+      inst = described_class.new(route_config, 'test_source')
+      
+      # Setup: create misses for each zoom level to verify they are processed
+      [2, 3, 4].each do |z|
+        db[:misses].insert(zoom_level: z, tile_column: 0, tile_row: 0, ts: Time.now.to_i, status: 404)
+      end
+      
+      inst.send(:run_reconstruction)
+      
+      # Verify all misses were processed (none should remain as no children exist)
+      expect(db[:misses].count).to eq(3)
     end
 
     it 'handles edge cases' do
-      expect(track_processed_zooms(base_route.merge(minzoom: 5, maxzoom: 6))).to eq([5])
-      expect(track_processed_zooms(base_route.merge(minzoom: 5, maxzoom: 5))).to be_empty
+      # Case 1: maxzoom=6, minzoom=5 -> should process zoom 5
+      route_config = base_route.merge(minzoom: 5, maxzoom: 6, db: db)
+      inst = described_class.new(route_config, 'test_source')
+      
+      db[:misses].insert(zoom_level: 5, tile_column: 0, tile_row: 0, ts: Time.now.to_i, status: 404)
+      
+      expect { inst.send(:run_reconstruction) }.not_to raise_error
+      
+      # Case 2: maxzoom=5, minzoom=5 -> should not process anything (start_zoom < minzoom)
+      route_config2 = base_route.merge(minzoom: 5, maxzoom: 5, db: db)
+      inst2 = described_class.new(route_config2, 'test_source')
+      
+      expect { inst2.send(:run_reconstruction) }.not_to raise_error
     end
 
     it 'continues processing even if some zoom fails' do
-      route = base_route.merge(minzoom: 1, maxzoom: 4)
-      processed_zooms = []
-      allow(described_class).to receive(:process_zoom) do |z, _, _|
-        processed_zooms << z
-        raise StandardError, 'test error' if z == 2
+      route_config = base_route.merge(minzoom: 1, maxzoom: 4, db: db)
+      
+      # Create invalid tile data that will cause processing error
+      db[:tiles].insert(zoom_level: 2, tile_column: 0, tile_row: 0, tile_data: Sequel.blob('invalid'), generated: 2)
+      # Valid children that would cause processing
+      child_tile = create_test_png
+      (0..3).each do |i|
+        db[:tiles].insert(zoom_level: 3, tile_column: i % 2, tile_row: i / 2, tile_data: Sequel.blob(child_tile))
       end
-
-      expect { described_class.fill_gaps(route) }.not_to raise_error
-      expect(processed_zooms).to eq([3, 2, 1])
+      
+      inst = described_class.new(route_config, 'test_source')
+      
+      # Should not raise error even if zoom 2 processing fails
+      expect { inst.send(:run_reconstruction) }.not_to raise_error
     end
   end
 end

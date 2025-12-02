@@ -36,6 +36,8 @@
         .source-name = name
         .source-actions
           a.btn.style-btn href=route[:path].gsub(/\/:[zxy]/, '') 📋 JSON Style
+          - if route[:gap_filling]
+            a.btn.reconstruct-btn href="#" onclick="startReconstructor('#{name}', event)" id="reconstruct-btn-#{name}" ⚙️ Reconstruct
           a.btn.map-btn href="/map?source=#{name}" 🌍 Map preview
           a.btn.debug-btn href="/map?source=#{name}&debug=true" Debug Map
       
@@ -77,41 +79,80 @@
               .info-value = route.dig(:autoscan, :max_scan_zoom) || 'N/A'
 
 javascript:
-  document.addEventListener('DOMContentLoaded', function() {
+  const setBtn = (btn, running) => {
+    btn.disabled = running;
+    btn.textContent = running ? '⏳ Running...' : '⚙️ Reconstruct';
+  };
+  
+  const pollStatus = (src, btn, onComplete) => {
+    const iv = setInterval(() => 
+      fetch(`/api/reconstructor/${src}/status`)
+        .then(r => r.json())
+        .then(d => {
+          if (!d.running) {
+            clearInterval(iv);
+            setBtn(btn, false);
+            if (onComplete) onComplete();
+          }
+        })
+        .catch(() => clearInterval(iv)),
+      5000
+    );
+  };
+  
+  function startReconstructor(src, e) {
+    e.preventDefault();
+    const btn = document.getElementById(`reconstruct-btn-${src}`);
+    showModal('Confirm Action', `Start tile reconstruction for ${src}?`, () => {
+      setBtn(btn, true);
+      fetch(`/api/reconstructor/${src}/start`, { method: 'POST' })
+        .then(r => r.json())
+        .then(data => {
+          if (data.success) {
+            pollStatus(src, btn, () => showToast(`Reconstruction completed for ${src}`));
+          } else {
+            showToast(data.error || 'Unknown error', true);
+            setBtn(btn, false);
+          }
+        })
+        .catch(err => { showToast(err.message, true); setBtn(btn, false); });
+    });
+  }
+  
+  document.addEventListener('DOMContentLoaded', () => {
     setTimeout(() => {
       fetch('/api/stats')
-        .then(response => response.json())
+        .then(r => r.json())
         .then(data => {
-          document.getElementById('total-tiles').textContent = data.totals.tiles;
-          document.getElementById('total-misses').textContent = data.totals.misses;
-          document.getElementById('total-cache-size').textContent = (data.totals.cache_size / 1024.0 / 1024.0).toFixed(2) + ' MB';
+          ['total-tiles', 'total-misses', 'total-cache-size'].forEach((id, i) => {
+            const el = document.getElementById(id);
+            el.textContent = i === 2 ? (data.totals.cache_size / 1024 / 1024).toFixed(2) + ' MB' : data.totals[id.replace('total-', '')];
+            el.classList.remove('loading');
+          });
           
-          document.getElementById('total-tiles').classList.remove('loading');
-          document.getElementById('total-misses').classList.remove('loading');
-          document.getElementById('total-cache-size').classList.remove('loading');
+          Object.keys(data.route_stats).forEach(src => {
+            const s = data.route_stats[src];
+            ['tiles', 'misses', 'size', 'coverage'].forEach(k => {
+              const el = document.getElementById(`${k}-${src}`);
+              el.textContent = k === 'size' ? (s.cache_size / 1024 / 1024).toFixed(2) + ' MB' : 
+                               k === 'coverage' ? s.coverage_percentage + '%' : s[k + '_count'];
+              el.classList.remove('loading');
+            });
+            
+            const chart = document.getElementById(`chart-${src}`);
+            if (chart && s.coverage_data) createCoverageChart(`chart-${src}`, s.coverage_data);
+          });
           
-          Object.keys(data.route_stats).forEach(sourceName => {
-            const stats = data.route_stats[sourceName];
-            
-            document.getElementById(`tiles-${sourceName}`).textContent = stats.tiles_count;
-            document.getElementById(`misses-${sourceName}`).textContent = stats.misses_count;
-            document.getElementById(`size-${sourceName}`).textContent = (stats.cache_size / 1024.0 / 1024.0).toFixed(2) + ' MB';
-            document.getElementById(`coverage-${sourceName}`).textContent = stats.coverage_percentage + '%';
-            
-            document.getElementById(`tiles-${sourceName}`).classList.remove('loading');
-            document.getElementById(`misses-${sourceName}`).classList.remove('loading');
-            document.getElementById(`size-${sourceName}`).classList.remove('loading');
-            document.getElementById(`coverage-${sourceName}`).classList.remove('loading');
-            
-            const chartElement = document.getElementById(`chart-${sourceName}`);
-            if (chartElement && stats.coverage_data) {
-              createCoverageChart(`chart-${sourceName}`, stats.coverage_data);
-            }
+          document.querySelectorAll('[id^="reconstruct-btn-"]').forEach(btn => {
+            const src = btn.id.replace('reconstruct-btn-', '');
+            fetch(`/api/reconstructor/${src}/status`)
+              .then(r => r.json())
+              .then(d => { if (d.running) { setBtn(btn, true); pollStatus(src, btn); } })
+              .catch(() => {});
           });
         })
-        .catch(error => {
-          console.error('Error loading stats:', error);
-          
+        .catch(err => {
+          console.error('Error loading stats:', err);
           document.querySelectorAll('.loading').forEach(el => {
             el.textContent = 'Error';
             el.classList.remove('loading');

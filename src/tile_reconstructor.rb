@@ -2,19 +2,132 @@ require 'vips'
 require 'sequel'
 require_relative 'ext/terrain_downsample_extension'
 
-module TileReconstructor
-  extend self
+class TileReconstructor
+  KERNELS = %i[nearest linear cubic mitchell lanczos2 lanczos3].freeze  # Vips interpolation kernels
+  TERRAIN_ENCODINGS = %w[mapbox terrarium].freeze  # Supported terrain RGB encodings
+  TERRAIN_METHODS = %w[average nearest maximum].freeze  # Terrain downsampling methods
 
-  KERNELS = %i[nearest linear cubic mitchell lanczos2 lanczos3].freeze
-  TERRAIN_ENCODINGS = %w[mapbox terrarium].freeze
-  TERRAIN_METHODS = %w[average nearest maximum].freeze
+  def initialize(route, source_name)
+    @route = route
+    @source_name = source_name
+    @running = false
+    @reconstruction_thread = nil
+    @scheduler_thread = nil
+    @last_run = nil
+    @schedule_time = parse_schedule_time
+  end
 
-  # Combines 4 raster tiles into one (2x downsampling)
-  # @param children_data [Array<String>] 4 tile blobs: [TL, TR, BL, BR]
-  # @param format [String] output format: png, webp, jpeg
-  # @param kernel [Symbol] interpolation kernel (see KERNELS)
-  # @param output_options [Hash] format options
-  # @return [String] resulting tile blob
+  def start_scheduler
+    return unless @schedule_time
+    
+    @scheduler_thread = Thread.new do
+      loop do
+        sleep 60
+        
+        begin
+          check_and_run_scheduled if should_run_now?
+        rescue => e
+          LOGGER.error("TileReconstructor scheduler error for #{@source_name}: #{e.message}")
+        end
+      end
+    end
+    
+    LOGGER.info("TileReconstructor: scheduler started for #{@source_name}, scheduled at #{@schedule_time[:hour].to_s.rjust(2, '0')}:#{@schedule_time[:minute].to_s.rjust(2, '0')} UTC")
+  end
+
+  def stop_scheduler
+    return unless @scheduler_thread
+    
+    @scheduler_thread.kill
+    @scheduler_thread = nil
+    LOGGER.info("TileReconstructor: scheduler stopped for #{@source_name}")
+  end
+
+  def start_reconstruction
+    return false if running?
+    
+    @running = true
+    @reconstruction_thread = Thread.new do
+      begin
+        run_reconstruction
+        @last_run = Time.now.utc
+      rescue => e
+        LOGGER.error("TileReconstructor error for #{@source_name}: #{e.message}")
+        LOGGER.debug("TileReconstructor: backtrace: #{e.backtrace.join("\n")}")
+      ensure
+        @running = false
+      end
+    end
+    
+    true
+  end
+
+  def running?
+    @running && @reconstruction_thread&.alive?
+  end
+
+  def status
+    {
+      running: running?,
+      last_run: @last_run,
+      schedule_time: @schedule_time
+    }
+  end
+
+  private
+
+  # Parses schedule time from config, returns {hour:, minute:} or nil
+  def parse_schedule_time
+    time_str = @route.dig(:gap_filling, :schedule, :time) || @route.dig(:gap_filling, :schedule, 'time')
+    return nil unless time_str
+    
+    hour, minute = time_str.split(':').map(&:to_i)
+    { hour: hour, minute: minute }
+  end
+
+  # Checks if current UTC time matches schedule
+  def should_run_now?
+    return false unless @schedule_time
+    now = Time.now.utc
+    now.hour == @schedule_time[:hour] && now.min == @schedule_time[:minute]
+  end
+
+  # Runs scheduled reconstruction if not already run today
+  def check_and_run_scheduled
+    return if @last_run && @last_run.to_date >= Time.now.utc.to_date
+    
+    LOGGER.info("Starting scheduled reconstruction for #{@source_name}")
+    start_reconstruction
+  end
+
+  # Main reconstruction loop: processes all zoom levels from maxzoom-1 to minzoom
+  def run_reconstruction
+    db = @route[:db]
+    minzoom = @route[:minzoom]
+    maxzoom = @route[:maxzoom]
+    
+    start_zoom = maxzoom - 1
+    return if start_zoom < minzoom
+    
+    downsample_opts = build_downsample_opts(@route)
+    
+    LOGGER.info("TileReconstructor: starting gap filling for #{@source_name} from zoom #{start_zoom} to #{minzoom}")
+    
+    start_zoom.downto(minzoom) do |z|
+      break unless @running
+      
+      begin
+        process_zoom(z, db, downsample_opts)
+      rescue => e
+        LOGGER.error("TileReconstructor: failed to process zoom #{z} for #{@source_name}: #{e.message}")
+        LOGGER.debug("TileReconstructor: backtrace: #{e.backtrace.join("\n")}")
+      end
+    end
+    
+    LOGGER.info("TileReconstructor: gap filling completed for #{@source_name}")
+  end
+
+  # Downsamples 4 raster tiles into one using Vips
   def downsample_raster_tiles(children_data, format: 'png', kernel: :linear, **output_options)
     raise ArgumentError, "Expected 4 tiles, got #{children_data.size}" unless children_data.size == 4
     raise ArgumentError, "All tiles must be non-empty" if children_data.any?(&:nil?) || children_data.any?(&:empty?)
@@ -24,11 +137,7 @@ module TileReconstructor
     combined.resize(0.5, kernel: kernel).write_to_buffer(".#{format}", **output_options)
   end
 
-  # Combines 4 terrain tiles into one with elevation-aware downsampling
-  # @param children_data [Array<String>] 4 tile blobs: [TL, TR, BL, BR]
-  # @param encoding [String] terrain source encoding: 'mapbox' or 'terrarium'
-  # @param method [String] downsampling method: 'average', 'nearest', 'maximum'
-  # @return [String] resulting PNG blob
+  # Downsamples 4 terrain tiles with elevation-aware algorithms
   def downsample_terrain_tiles(children_data, encoding: 'mapbox', method: 'average')
     raise ArgumentError, "Expected 4 tiles, got #{children_data.size}" unless children_data.size == 4
     raise ArgumentError, "All tiles must be non-empty" if children_data.any?(&:nil?) || children_data.any?(&:empty?)
@@ -41,13 +150,7 @@ module TileReconstructor
     TerrainDownsampleFFI.downsample_png(combined_png, 256, encoding, method)
   end
 
-  # Retrieves tile data for all 4 child tiles in order: TL, TR, BL, BR
-  # Returns nil if not all children exist (usable in guard clauses)
-  # @param db [Sequel::Database] database connection
-  # @param z [Integer] parent zoom level
-  # @param parent_x [Integer] parent tile column
-  # @param parent_y [Integer] parent tile row (TMS)
-  # @return [Array<String>, nil] 4 tile blobs: [TL, TR, BL, BR] or nil if not all exist
+  # Gets 4 child tiles data [TL, TR, BL, BR] or nil if not all exist
   def get_children_data(db, z, parent_x, parent_y)
     child_z = z + 1
     children_coords = [
@@ -64,9 +167,7 @@ module TileReconstructor
     children_data.any?(&:nil?) ? nil : children_data
   end
 
-  # Builds downsample options from route configuration
-  # @param route [Hash] route with gap_filling, metadata, minzoom
-  # @return [Hash] { method: Symbol, args: Hash, minzoom: Integer }
+  # Builds downsample options from route config (method, args, minzoom)
   def build_downsample_opts(route)
     encoding = route.dig(:metadata, :encoding)
     gap_filling = route[:gap_filling]
@@ -86,41 +187,7 @@ module TileReconstructor
     end
   end
 
-  # Fills gaps in tile pyramid by generating missing tiles from children
-  # Processes all zooms from maxzoom-1 down to minzoom
-  # @param route [Hash] route configuration with db, minzoom, maxzoom, gap_filling
-  # @return [void]
-  def fill_gaps(route)
-    db = route[:db]
-    minzoom = route[:minzoom]
-    maxzoom = route[:maxzoom]
-
-    start_zoom = maxzoom - 1
-    return if start_zoom < minzoom
-
-    downsample_opts = build_downsample_opts(route)
-
-    LOGGER.info("TileReconstructor: starting gap filling from zoom #{start_zoom} to #{minzoom}")
-
-    start_zoom.downto(minzoom) do |z|
-      begin
-        process_zoom(z, db, downsample_opts)
-      rescue => e
-        LOGGER.error("TileReconstructor: failed to process zoom #{z}: #{e.message}")
-        LOGGER.debug("TileReconstructor: backtrace: #{e.backtrace.join("\n")}")
-      end
-    end
-
-    LOGGER.info("TileReconstructor: gap filling completed")
-  end
-
-  # Marks parent tile as regeneration candidate if it's generated
-  # Skips original tiles (generated=0/nil) and already marked candidates (generated=2)
-  # @param db [Sequel::Database] database connection
-  # @param child_z [Integer] child zoom level
-  # @param child_x [Integer] child tile column
-  # @param child_y [Integer] child tile row (TMS)
-  # @return [void]
+  # Marks parent tile as regeneration candidate (generated=1 -> generated=2)
   def mark_parent_candidate(db, child_z, child_x, child_y)
     parent_z = child_z - 1
     parent_x = child_x / 2
@@ -141,11 +208,7 @@ module TileReconstructor
     parent_dataset.update(generated: 2)
   end
 
-  # Processes regeneration candidates (generated=2) for zoom level z
-  # Regenerates from children if all 4 exist, marks parent as candidate if z > minzoom
-  # @param z [Integer] zoom level
-  # @param db [Sequel::Database] database
-  # @param downsample_opts [Hash] from build_downsample_opts
+  # Processes regeneration candidates (generated=2) for given zoom
   def process_regeneration_candidates(z, db, downsample_opts)
     minzoom = downsample_opts[:minzoom]
 
@@ -172,11 +235,7 @@ module TileReconstructor
     end
   end
 
-  # Processes miss records for zoom level z
-  # Generates tiles from children if all 4 exist, removes from misses, marks parent as candidate if z > minzoom
-  # @param z [Integer] zoom level
-  # @param db [Sequel::Database] database
-  # @param downsample_opts [Hash] from build_downsample_opts
+  # Processes miss records (404/403) for given zoom
   def process_miss_records(z, db, downsample_opts)
     minzoom = downsample_opts[:minzoom]
 
@@ -220,10 +279,7 @@ module TileReconstructor
     end
   end
 
-  # Processes single zoom level: regeneration candidates first, then misses
-  # @param z [Integer] zoom level to process
-  # @param db [Sequel::Database] database connection
-  # @param downsample_opts [Hash] from build_downsample_opts
+  # Processes single zoom: regeneration candidates first, then misses
   def process_zoom(z, db, downsample_opts)
     LOGGER.info("TileReconstructor: processing zoom #{z}")
 
@@ -233,15 +289,11 @@ module TileReconstructor
     LOGGER.debug("TileReconstructor: zoom #{z} completed")
   end
 
-  private
-
+  # Combines 4 tile images into 2x2 grid (TMS coordinate system)
   def combine_4_tiles(children_data)
     images = children_data.map { |d| Vips::Image.new_from_buffer(d, '') }
-
     top_row = images[0].join(images[1], :horizontal)
     bottom_row = images[2].join(images[3], :horizontal)
-    # Swap rows: Vips join(:vertical) places first arg on top, but TMS Y increases southward
-    # So we put bottom_row first to get correct visual order (north on top)
-    bottom_row.join(top_row, :vertical)
+    bottom_row.join(top_row, :vertical)  # TMS: bottom first (Y increases southward)
   end
 end

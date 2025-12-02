@@ -13,6 +13,7 @@ require_relative 'view_helpers'
 require_relative 'metadata_manager'
 require_relative 'background_tile_loader'
 require_relative 'database_manager'
+require_relative 'tile_reconstructor'
 
 register MapLibrePreview::Extension
 
@@ -99,6 +100,33 @@ rescue => e
   { status: "error", message: e.message }.to_json
 end
 
+get "/api/reconstructor/:source/status" do
+  content_type :json
+  
+  source, route = validate_and_get_route(params[:source])
+  reconstructor = route[:reconstructor]
+  
+  halt 404, { error: "Reconstructor not configured" }.to_json unless reconstructor
+  
+  reconstructor.status.to_json
+end
+
+post "/api/reconstructor/:source/start" do
+  content_type :json
+  
+  source, route = validate_and_get_route(params[:source])
+  reconstructor = route[:reconstructor]
+  
+  halt 404, { error: "Reconstructor not configured" }.to_json unless reconstructor
+  halt 409, { error: "Already running" }.to_json if reconstructor.running?
+  
+  if reconstructor.start_reconstruction
+    { success: true }.to_json
+  else
+    halt 500, { error: "Failed to start" }.to_json
+  end
+end
+
 def create_http_client(uri, route)
   base_config = {
     url: "#{uri.scheme}://#{uri.host}",
@@ -127,6 +155,12 @@ configure do
       route[:autoscan_loader] = loader
       loader.start_scanning
       loader.start_wal_checkpoint_thread
+    end
+
+    if route[:gap_filling]
+      reconstructor = TileReconstructor.new(route, _name.to_s)
+      route[:reconstructor] = reconstructor
+      reconstructor.start_scheduler
     end
   end
 end
@@ -415,6 +449,11 @@ end
 at_exit do
   ROUTES.each do |_name, route|
     route[:autoscan_loader]&.stop_scanning
+    
+    if route[:reconstructor]
+      route[:reconstructor].stop_scheduler
+      sleep 1 if route[:reconstructor].running?
+    end
   end
 end
 

@@ -257,6 +257,95 @@ html
       |   background: #7aa8cc; 
       |   border-color: #8bb9dd; 
       | }
+      | .reconstruct-btn {
+      |   background: #c75450;
+      |   color: #ffffff;
+      |   border-color: #d76460;
+      |   font-size: 11px;
+      |   padding: 4px 8px;
+      |   margin-right: 8px;
+      | }
+      | .reconstruct-btn:hover {
+      |   background: #d76460;
+      |   border-color: #e77470;
+      | }
+      | .reconstruct-btn:disabled {
+      |   background: #808080;
+      |   color: #555555;
+      |   cursor: not-allowed;
+      |   opacity: 0.5;
+      | }
+      | .modal-overlay {
+      |   display: none;
+      |   position: fixed;
+      |   top: 0;
+      |   left: 0;
+      |   width: 100%;
+      |   height: 100%;
+      |   background: rgba(0,0,0,0.7);
+      |   z-index: 1000;
+      |   align-items: center;
+      |   justify-content: center;
+      | }
+      | .modal-overlay.show {
+      |   display: flex;
+      | }
+      | .modal-content {
+      |   background: #3c3f41;
+      |   border: 1px solid #555555;
+      |   border-radius: 6px;
+      |   padding: 24px;
+      |   max-width: 400px;
+      |   box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+      |   user-select: none;
+      |   -webkit-user-select: none;
+      |   -moz-user-select: none;
+      |   -ms-user-select: none;
+      | }
+      | .modal-title {
+      |   color: #ffc66d;
+      |   font-size: 16px;
+      |   font-weight: bold;
+      |   margin-bottom: 12px;
+      | }
+      | .modal-message {
+      |   color: #a9b7c6;
+      |   font-size: 13px;
+      |   margin-bottom: 20px;
+      | }
+      | .modal-buttons {
+      |   display: flex;
+      |   gap: 8px;
+      |   justify-content: flex-end;
+      | }
+      | .toast {
+      |   position: fixed;
+      |   bottom: 20px;
+      |   right: 20px;
+      |   background: #3c3f41;
+      |   border: 1px solid #6a9955;
+      |   border-left: 4px solid #6a9955;
+      |   border-radius: 4px;
+      |   padding: 16px 20px;
+      |   box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+      |   z-index: 2000;
+      |   opacity: 0;
+      |   transform: translateX(400px);
+      |   transition: all 0.3s ease;
+      |   cursor: pointer;
+      | }
+      | .toast.show {
+      |   opacity: 1;
+      |   transform: translateX(0);
+      | }
+      | .toast.error {
+      |   border-color: #f44747;
+      |   border-left-color: #f44747;
+      | }
+      | .toast-message {
+      |   color: #a9b7c6;
+      |   font-size: 13px;
+      | }
       | .loading {
       |   animation: pulse 1.5s ease-in-out infinite;
       |   color: #ffc66d !important;
@@ -277,6 +366,13 @@ html
       | }
 
   body
+    .modal-overlay id="modal-overlay"
+      .modal-content
+        .modal-title id="modal-title"
+        .modal-message id="modal-message"
+        .modal-buttons
+          a.btn onclick="closeModal()" Cancel
+          a.btn.btn-primary onclick="confirmModal()" id="modal-confirm" OK
     .container
       .header
         .header-content
@@ -290,9 +386,39 @@ html
       == yield
     script src="https://d3js.org/d3.v7.min.js"
     script
+      | let modalCallback = null;
+      | 
+      | function showModal(title, message, onConfirm) {
+      |   document.getElementById('modal-title').textContent = title;
+      |   document.getElementById('modal-message').textContent = message;
+      |   modalCallback = onConfirm;
+      |   document.getElementById('modal-overlay').classList.add('show');
+      | }
+      | 
+      | function closeModal() {
+      |   document.getElementById('modal-overlay').classList.remove('show');
+      |   modalCallback = null;
+      | }
+      | 
+      | function confirmModal() {
+      |   if (modalCallback) modalCallback();
+      |   closeModal();
+      | }
+      | 
+      | function showToast(message, isError = false) {
+      |   const toast = document.createElement('div');
+      |   toast.className = 'toast' + (isError ? ' error' : '');
+      |   toast.innerHTML = `<div class="toast-message">${message}</div>`;
+      |   toast.onmouseover = () => {
+      |     toast.classList.remove('show');
+      |     setTimeout(() => toast.remove(), 300);
+      |   };
+      |   document.body.appendChild(toast);
+      |   setTimeout(() => toast.classList.add('show'), 10);
+      | }
+      | 
       | function toggleGlobalConfig() {
-      |   const config = document.getElementById('global-config');
-      |   config.classList.toggle('hidden');
+      |   document.getElementById('global-config').classList.toggle('hidden');
       | }
       | 
       | function getStatusColor(status) {
