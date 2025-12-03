@@ -81,34 +81,36 @@ class BackgroundTileLoader
   end
 
   def scan_zoom_level(z)
-    if zoom_complete?(z)
-      LOGGER.info("Zoom #{z} already complete for #{@source_name}")
-      update_status(z, 'completed')
-      return
-    end
+    otl_span("scan_zoom_level", {source: @source_name, zoom: z}) do
+      if zoom_complete?(z)
+        LOGGER.info("Zoom #{z} already complete for #{@source_name}")
+        update_status(z, 'completed')
+        return
+      end
 
-    bounds = get_bounds_for_zoom(z)
-    return unless bounds
+      bounds = get_bounds_for_zoom(z)
+      return unless bounds
 
-    @current_progress[z] = load_progress(z)
-    update_status(z, 'active')
+      @current_progress[z] = load_progress(z)
+      update_status(z, 'active')
 
-    scan_zoom_grid(z, bounds)
+      scan_zoom_grid(z, bounds)
 
-    final_x = @current_progress[z]&.dig(:x) || 0
-    final_y = @current_progress[z]&.dig(:y) || 0
-    save_progress(final_x, final_y, z)
-    
-    if zoom_complete?(z)
-      update_status(z, 'completed')
-      LOGGER.info("Zoom #{z} marked as completed for #{@source_name}")
-    else
-      expected = expected_tiles_count(z)
-      actual_tiles = @route[:db][:tiles].where(zoom_level: z).count
-      errors = @route[:db][:misses].where(zoom_level: z).count
-      remaining = expected - actual_tiles - errors
-      LOGGER.error("Zoom #{z} grid scan finished but incomplete for #{@source_name}: actual=#{actual_tiles}, expected=#{expected}, errors=#{errors}, remaining=#{remaining}")
-      update_status(z, 'error')
+      final_x = @current_progress[z]&.dig(:x) || 0
+      final_y = @current_progress[z]&.dig(:y) || 0
+      save_progress(final_x, final_y, z)
+      
+      if zoom_complete?(z)
+        update_status(z, 'completed')
+        LOGGER.info("Zoom #{z} marked as completed for #{@source_name}")
+      else
+        expected = expected_tiles_count(z)
+        actual_tiles = @route[:db][:tiles].where(zoom_level: z).count
+        errors = @route[:db][:misses].where(zoom_level: z).count
+        remaining = expected - actual_tiles - errors
+        LOGGER.error("Zoom #{z} grid scan finished but incomplete for #{@source_name}: actual=#{actual_tiles}, expected=#{expected}, errors=#{errors}, remaining=#{remaining}, running=#{@running}")
+        update_status(z, 'error')
+      end
     end
   end
 
