@@ -301,6 +301,16 @@ class TileReconstructor
   # Combines 4 tile images into 2x2 grid (TMS coordinate system)
   def combine_4_tiles(children_data)
     images = children_data.map { |d| Vips::Image.new_from_buffer(d, '') }
+    
+    # If any tile has alpha channel, add alpha to all RGB tiles to preserve transparency
+    has_alpha = images.any? { |img| img.bands == 4 }
+    
+    if has_alpha
+      images = images.map do |img|
+        img.bands == 4 ? img : img.bandjoin(255)  # Add solid alpha (255 = fully opaque) to RGB tiles
+      end
+    end
+    
     top_row = images[0].join(images[1], :horizontal)
     bottom_row = images[2].join(images[3], :horizontal)
     bottom_row.join(top_row, :vertical)  # TMS: bottom first (Y increases southward)
