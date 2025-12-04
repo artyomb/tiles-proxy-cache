@@ -138,16 +138,19 @@ class TileReconstructor
   end
 
   # Downsamples 4 terrain tiles with elevation-aware algorithms
-  def downsample_terrain_tiles(children_data, encoding: 'mapbox', method: 'average')
+  def downsample_terrain_tiles(children_data, encoding: 'mapbox', method: 'average', format:, effort: nil)
     raise ArgumentError, "Expected 4 tiles, got #{children_data.size}" unless children_data.size == 4
     raise ArgumentError, "All tiles must be non-empty" if children_data.any?(&:nil?) || children_data.any?(&:empty?)
     raise ArgumentError, "Unknown encoding: #{encoding}" unless TERRAIN_ENCODINGS.include?(encoding)
     raise ArgumentError, "Unknown method: #{method}" unless TERRAIN_METHODS.include?(method)
+    raise ArgumentError, "Unknown format: #{format}" unless %w[png webp].include?(format)
 
     combined = combine_4_tiles(children_data)
     combined_png = combined.write_to_buffer('.png')
+    result_png = TerrainDownsampleFFI.downsample_png(combined_png, 256, encoding, method)
 
-    TerrainDownsampleFFI.downsample_png(combined_png, 256, encoding, method)
+    return result_png if format == 'png'
+    Vips::Image.new_from_buffer(result_png, '').write_to_buffer('.webp', lossless: true, effort: effort || 4)
   end
 
   # Gets 4 child tiles data [TL, TR, BL, BR] or nil if not all exist
@@ -175,7 +178,13 @@ class TileReconstructor
 
     if TERRAIN_ENCODINGS.include?(encoding)
       method = gap_filling[:terrain_method]
-      { method: :downsample_terrain_tiles, args: { encoding: encoding, method: method }, minzoom: minzoom }
+      output_format_config = gap_filling[:output_format]
+      format = output_format_config[:type]
+      
+      args = { encoding: encoding, method: method, format: format }
+      args[:effort] = output_format_config[:effort] || 4 if format == 'webp'
+
+      { method: :downsample_terrain_tiles, args: args, minzoom: minzoom }
     else
       output_format_config = gap_filling[:output_format]
       format = output_format_config[:type]

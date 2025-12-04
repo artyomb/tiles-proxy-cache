@@ -111,31 +111,36 @@ RSpec.describe TileReconstructor do
   describe '#downsample_terrain_tiles' do
     describe 'input validation' do
       it 'raises error when not 4 tiles' do
-        expect { reconstructor.send(:downsample_terrain_tiles, [create_test_png] * 3) }
+        expect { reconstructor.send(:downsample_terrain_tiles, [create_test_png] * 3, format: 'png') }
           .to raise_error(ArgumentError, /Expected 4 tiles/)
       end
 
       it 'raises error when tile is nil or empty' do
-        expect { reconstructor.send(:downsample_terrain_tiles, [create_test_png, nil, create_test_png, create_test_png]) }
+        expect { reconstructor.send(:downsample_terrain_tiles, [create_test_png, nil, create_test_png, create_test_png], format: 'png') }
           .to raise_error(ArgumentError, /non-empty/)
-        expect { reconstructor.send(:downsample_terrain_tiles, [create_test_png, '', create_test_png, create_test_png]) }
+        expect { reconstructor.send(:downsample_terrain_tiles, [create_test_png, '', create_test_png, create_test_png], format: 'png') }
           .to raise_error(ArgumentError, /non-empty/)
       end
 
       it 'raises error for unknown encoding' do
-        expect { reconstructor.send(:downsample_terrain_tiles, Array.new(4) { create_test_png }, encoding: 'invalid') }
+        expect { reconstructor.send(:downsample_terrain_tiles, Array.new(4) { create_test_png }, encoding: 'invalid', format: 'png') }
           .to raise_error(ArgumentError, /Unknown encoding/)
       end
 
       it 'raises error for unknown method' do
-        expect { reconstructor.send(:downsample_terrain_tiles, Array.new(4) { create_test_png }, method: 'invalid') }
+        expect { reconstructor.send(:downsample_terrain_tiles, Array.new(4) { create_test_png }, method: 'invalid', format: 'png') }
           .to raise_error(ArgumentError, /Unknown method/)
+      end
+
+      it 'raises error for unknown format' do
+        expect { reconstructor.send(:downsample_terrain_tiles, Array.new(4) { create_test_png }, format: 'invalid') }
+          .to raise_error(ArgumentError, /Unknown format/)
       end
     end
 
     it 'returns 256x256 PNG from 4 tiles' do
       children = Array.new(4) { create_terrain_png_mapbox(100) }
-      result = reconstructor.send(:downsample_terrain_tiles, children)
+      result = reconstructor.send(:downsample_terrain_tiles, children, format: 'png')
 
       img = Vips::Image.new_from_buffer(result, '')
       expect([img.width, img.height]).to eq([256, 256])
@@ -149,11 +154,21 @@ RSpec.describe TileReconstructor do
         create_terrain_png_mapbox(300)   # BR
       ]
 
-      result = reconstructor.send(:downsample_terrain_tiles, children, encoding: 'mapbox')
+      result = reconstructor.send(:downsample_terrain_tiles, children, encoding: 'mapbox', format: 'png')
 
       # After combine_4_tiles: (64,64)=BL, (192,192)=TR
       expect(decode_mapbox_elevation(*pixel_at(result, 64, 64).map(&:to_i))).to be_within(0.2).of(200)
       expect(decode_mapbox_elevation(*pixel_at(result, 192, 192).map(&:to_i))).to be_within(0.2).of(100)
+    end
+
+    it 'returns WebP format when specified' do
+      children = Array.new(4) { create_terrain_png_mapbox(100) }
+      result = reconstructor.send(:downsample_terrain_tiles, children, format: 'webp', effort: 4)
+
+      expect(result[0..3]).to eq('RIFF')
+      expect(result[8..11]).to eq('WEBP')
+      img = Vips::Image.new_from_buffer(result, '')
+      expect([img.width, img.height]).to eq([256, 256])
     end
   end
 
@@ -286,12 +301,29 @@ RSpec.describe TileReconstructor do
     end
 
     it 'returns terrain opts structure' do
-      route_config = { minzoom: 0, metadata: { encoding: 'mapbox' }, gap_filling: { terrain_method: 'average' } }
+      route_config = { minzoom: 0, metadata: { encoding: 'mapbox' }, gap_filling: { terrain_method: 'average', output_format: { type: 'png' } } }
       opts = reconstructor.send(:build_downsample_opts, route_config)
 
       expect(opts[:method]).to eq(:downsample_terrain_tiles)
       expect(opts[:args][:encoding]).to eq('mapbox')
+      expect(opts[:args][:format]).to eq('png')
+      expect(opts[:args]).not_to have_key(:effort)
       expect(opts[:minzoom]).to eq(0)
+    end
+
+    it 'returns terrain opts with WebP format and effort configuration' do
+      route_config = { minzoom: 0, metadata: { encoding: 'mapbox' }, gap_filling: { terrain_method: 'average', output_format: { type: 'webp', effort: 6 } } }
+      opts = reconstructor.send(:build_downsample_opts, route_config)
+
+      expect(opts[:method]).to eq(:downsample_terrain_tiles)
+      expect(opts[:args][:format]).to eq('webp')
+      expect(opts[:args][:effort]).to eq(6)
+
+      route_config2 = { minzoom: 0, metadata: { encoding: 'mapbox' }, gap_filling: { terrain_method: 'average', output_format: { type: 'webp' } } }
+      opts2 = reconstructor.send(:build_downsample_opts, route_config2)
+
+      expect(opts2[:args][:format]).to eq('webp')
+      expect(opts2[:args][:effort]).to eq(4)
     end
   end
 
