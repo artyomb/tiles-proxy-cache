@@ -170,8 +170,9 @@ ROUTES.each do |_name, route|
     z, x, y = params[:z].to_i, params[:x].to_i, params[:y].to_i
     tms = tms_y(z, y)
 
-    if (blob = get_cached_tile(route, z, x, tms))
-      return serve_tile(route, blob, :hit)
+    if (tile = get_cached_tile(route, z, x, tms))
+      cache_status = { 1 => :gen, 2 => :regen }.fetch(tile[:generated], :hit)
+      return serve_tile(route, tile[:tile_data], cache_status)
     end
 
     if (miss_status = should_skip_request?(route, z, x, y))
@@ -210,7 +211,7 @@ helpers do
   end
 
   def get_cached_tile(route, z, x, tms)
-    route[:db][:tiles].where(zoom_level: z, tile_column: x, tile_row: tms).get(:tile_data)
+    route[:db][:tiles].where(zoom_level: z, tile_column: x, tile_row: tms).select(:tile_data, :generated).first
   end
 
   def serve_tile(route, blob, status)
@@ -232,8 +233,8 @@ helpers do
 
   def fetch_with_lock(route, z, x, y, tms)
     route[:locks][key(z, x, y)].synchronize do
-      blob = get_cached_tile(route, z, x, tms)
-      return blob if blob
+      tile = get_cached_tile(route, z, x, tms)
+      return tile[:tile_data] if tile
 
       result = fetch_http(route:, x: x, y: y, z: z)
 
@@ -417,6 +418,12 @@ helpers do
                             when :miss
                               max_age = response_headers.dig(:'Cache-Control', :'max-age', :miss) || 300
                               ["public, max-age=#{max_age}", "MISS"]
+                            when :gen
+                              max_age = response_headers.dig(:'Cache-Control', :'max-age', :hit) || 86400
+                              ["public, max-age=#{max_age}", "GEN"]
+                            when :regen
+                              max_age = response_headers.dig(:'Cache-Control', :'max-age', :miss) || 300
+                              ["public, max-age=#{max_age}", "REGEN"]
                             else
                               ["no-store", "ERROR"]
                             end
