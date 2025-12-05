@@ -128,24 +128,32 @@ class TileReconstructor
   end
 
   # Downsamples 4 raster tiles into one using Vips
+  # Missing tiles are replaced with transparent placeholders
   def downsample_raster_tiles(children_data, format: 'png', kernel: :linear, **output_options)
     raise ArgumentError, "Expected 4 tiles, got #{children_data.size}" unless children_data.size == 4
-    raise ArgumentError, "All tiles must be non-empty" if children_data.any?(&:nil?) || children_data.any?(&:empty?)
     raise ArgumentError, "Unknown kernel: #{kernel}" unless KERNELS.include?(kernel)
 
-    combined = combine_4_tiles(children_data)
+    # Fill missing tiles with transparent placeholders
+    filled_children = fill_missing_tiles(children_data, format)
+    return nil if filled_children.all?(&:nil?)
+
+    combined = combine_4_tiles(filled_children)
     combined.resize(0.5, kernel: kernel).write_to_buffer(".#{format}", **output_options)
   end
 
   # Downsamples 4 terrain tiles with elevation-aware algorithms
+  # Missing tiles are replaced with transparent placeholders
   def downsample_terrain_tiles(children_data, encoding: 'mapbox', method: 'average', format:, effort: nil)
     raise ArgumentError, "Expected 4 tiles, got #{children_data.size}" unless children_data.size == 4
-    raise ArgumentError, "All tiles must be non-empty" if children_data.any?(&:nil?) || children_data.any?(&:empty?)
     raise ArgumentError, "Unknown encoding: #{encoding}" unless TERRAIN_ENCODINGS.include?(encoding)
     raise ArgumentError, "Unknown method: #{method}" unless TERRAIN_METHODS.include?(method)
     raise ArgumentError, "Unknown format: #{format}" unless %w[png webp].include?(format)
 
-    combined = combine_4_tiles(children_data)
+    # Fill missing tiles with transparent placeholders
+    filled_children = fill_missing_tiles(children_data, format)
+    return nil if filled_children.all?(&:nil?)
+
+    combined = combine_4_tiles(filled_children)
     combined_png = combined.write_to_buffer('.png')
     result_png = TerrainDownsampleFFI.downsample_png(combined_png, 256, encoding, method)
 
@@ -153,7 +161,8 @@ class TileReconstructor
     Vips::Image.new_from_buffer(result_png, '').write_to_buffer('.webp', lossless: true, effort: effort || 4)
   end
 
-  # Gets 4 child tiles data [TL, TR, BL, BR] or nil if not all exist
+  # Gets 4 child tiles data [TL, TR, BL, BR]
+  # Returns array with nil for missing tiles (allows partial generation)
   def get_children_data(db, z, parent_x, parent_y)
     child_z = z + 1
     children_coords = [
@@ -163,11 +172,9 @@ class TileReconstructor
       [child_z, 2 * parent_x + 1, 2 * parent_y + 1] # BR
     ]
 
-    children_data = children_coords.map do |cz, cx, cy|
+    children_coords.map do |cz, cx, cy|
       db[:tiles].where(zoom_level: cz, tile_column: cx, tile_row: cy).get(:tile_data)
     end
-
-    children_data.any?(&:nil?) ? nil : children_data
   end
 
   # Builds downsample options from route config (method, args, minzoom)
@@ -226,10 +233,12 @@ class TileReconstructor
       .select(:zoom_level, :tile_column, :tile_row)
       .each do |tile|
       children_data = get_children_data(db, z, tile[:tile_column], tile[:tile_row])
-      next unless children_data
+      next if children_data.all?(&:nil?)
 
       begin
         new_data = send(downsample_opts[:method], children_data, **downsample_opts[:args])
+        next unless new_data
+
         db[:tiles].where(
           zoom_level: z,
           tile_column: tile[:tile_column],
@@ -262,10 +271,12 @@ class TileReconstructor
       .select(:zoom_level, :tile_column, :tile_row)
       .each do |miss|
       children_data = get_children_data(db, z, miss[:tile_column], miss[:tile_row])
-      next unless children_data
+      next if children_data.all?(&:nil?)
 
       begin
         new_data = send(downsample_opts[:method], children_data, **downsample_opts[:args])
+        next unless new_data
+
         db[:tiles].insert(
           zoom_level: z,
           tile_column: miss[:tile_column],
@@ -304,17 +315,52 @@ class TileReconstructor
     
     # If any tile has alpha channel, add alpha to all RGB tiles to preserve transparency
     has_alpha = images.any? { |img| img.bands == 4 }
-    
-    if has_alpha
-      images = images.map do |img|
-        img.bands == 4 ? img : img.bandjoin(255)  # Add solid alpha (255 = fully opaque) to RGB tiles
-      end
-    end
+    images.map! { |img| img.bands == 4 ? img : img.bandjoin(255) } if has_alpha
     
     top_row = images[0].join(images[1], :horizontal)
     bottom_row = images[2].join(images[3], :horizontal)
     bottom_row.join(top_row, :vertical)  # TMS: bottom first (Y increases southward)
   rescue Vips::Error => e
-    raise ArgumentError, "Invalid child tile data: #{e.message}"
+    raise ArgumentError, "Failed to combine tiles: #{e.message}"
+  end
+
+  # Fills missing tiles (nil values) with transparent placeholders
+  # Also replaces corrupted tiles that vips cannot load
+  def fill_missing_tiles(children_data, format)
+    # Find first valid tile as reference
+    reference_img = nil
+    children_data.compact.each do |tile_data|
+      reference_img = Vips::Image.new_from_buffer(tile_data, '') rescue next
+      break
+    end
+    
+    return [nil, nil, nil, nil] unless reference_img
+    
+    children_data.map do |tile_data|
+      if tile_data
+        Vips::Image.new_from_buffer(tile_data, '')
+        tile_data
+      else
+        create_transparent_tile(reference_img, format)
+      end
+    rescue Vips::Error
+      create_transparent_tile(reference_img, format)
+    end
+  end
+
+  # Creates transparent tile matching reference image properties
+  def create_transparent_tile(reference_img, format)
+    transparent = Vips::Image.black(reference_img.width, reference_img.height)
+    
+    # Add color channels if needed (RGB or single band)
+    transparent = transparent.bandjoin([0, 0]) if reference_img.bands >= 3
+    
+    # Add transparent alpha channel
+    transparent = transparent.bandjoin(0)
+    
+    transparent.write_to_buffer(".#{format}")
+  rescue Vips::Error => e
+    LOGGER.warn("TileReconstructor: failed to create transparent tile: #{e.message}")
+    nil
   end
 end

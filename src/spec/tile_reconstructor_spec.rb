@@ -81,9 +81,28 @@ RSpec.describe TileReconstructor do
         .to raise_error(ArgumentError, /Expected 4 tiles/)
     end
 
-    it 'raises error when tile is nil or empty' do
-      expect { reconstructor.send(:downsample_raster_tiles, [create_test_png, nil, create_test_png, create_test_png]) }
-        .to raise_error(ArgumentError, /non-empty/)
+    it 'handles nil tiles by filling with transparent' do
+      result = reconstructor.send(:downsample_raster_tiles, [create_test_png, nil, create_test_png, nil])
+      
+      expect(result).not_to be_nil
+      img = Vips::Image.new_from_buffer(result, '')
+      expect([img.width, img.height]).to eq([256, 256])
+    end
+
+    it 'returns nil when all tiles are nil' do
+      result = reconstructor.send(:downsample_raster_tiles, [nil, nil, nil, nil])
+      expect(result).to be_nil
+    end
+
+    it 'handles corrupted tiles by replacing with transparent' do
+      corrupted = "PNG"  # Only header
+      valid = create_test_png
+      
+      result = reconstructor.send(:downsample_raster_tiles, [valid, corrupted, valid, corrupted])
+      
+      expect(result).not_to be_nil
+      img = Vips::Image.new_from_buffer(result, '')
+      expect([img.width, img.height]).to eq([256, 256])
     end
 
     it 'raises error for unknown kernel' do
@@ -113,13 +132,6 @@ RSpec.describe TileReconstructor do
       it 'raises error when not 4 tiles' do
         expect { reconstructor.send(:downsample_terrain_tiles, [create_test_png] * 3, format: 'png') }
           .to raise_error(ArgumentError, /Expected 4 tiles/)
-      end
-
-      it 'raises error when tile is nil or empty' do
-        expect { reconstructor.send(:downsample_terrain_tiles, [create_test_png, nil, create_test_png, create_test_png], format: 'png') }
-          .to raise_error(ArgumentError, /non-empty/)
-        expect { reconstructor.send(:downsample_terrain_tiles, [create_test_png, '', create_test_png, create_test_png], format: 'png') }
-          .to raise_error(ArgumentError, /non-empty/)
       end
 
       it 'raises error for unknown encoding' do
@@ -195,7 +207,7 @@ RSpec.describe TileReconstructor do
       expect(result).to eq([tile1, tile2, tile3, tile4])
     end
 
-    it 'returns nil when not all children exist' do
+    it 'returns array with nils when not all children exist' do
       parent_z = 5
       parent_x = 10
       parent_y = 20
@@ -204,7 +216,8 @@ RSpec.describe TileReconstructor do
       db[:tiles].insert(zoom_level: 6, tile_column: 21, tile_row: 40, tile_data: Sequel.blob(tile2))
       # Missing 2 children
 
-      expect(reconstructor.send(:get_children_data, db, parent_z, parent_x, parent_y)).to be_nil
+      result = reconstructor.send(:get_children_data, db, parent_z, parent_x, parent_y)
+      expect(result).to eq([tile1, tile2, nil, nil])
     end
   end
 
@@ -352,7 +365,7 @@ RSpec.describe TileReconstructor do
       expect(tile[:generated]).to eq(1)
     end
 
-    it 'skips candidate when not all children exist' do
+    it 'regenerates candidate even with partial children' do
       z = 5
       x = 10
       y = 20
@@ -366,7 +379,7 @@ RSpec.describe TileReconstructor do
       reconstructor.send(:process_regeneration_candidates, z, db, opts)
 
       tile = db[:tiles].where(zoom_level: z, tile_column: x, tile_row: y).first
-      expect(tile[:generated]).to eq(2)
+      expect(tile[:generated]).to eq(1)
     end
   end
 
@@ -392,7 +405,7 @@ RSpec.describe TileReconstructor do
       expect(db[:misses].where(zoom_level: z, tile_column: x, tile_row: y).count).to eq(0)
     end
 
-    it 'skips miss when not all children exist' do
+    it 'generates tile even with single child' do
       z = 5
       x = 10
       y = 20
@@ -402,8 +415,8 @@ RSpec.describe TileReconstructor do
 
       reconstructor.send(:process_miss_records, z, db, opts)
 
-      expect(db[:tiles].where(zoom_level: z, tile_column: x, tile_row: y).count).to eq(0)
-      expect(db[:misses].where(zoom_level: z, tile_column: x, tile_row: y).count).to eq(1)
+      expect(db[:tiles].where(zoom_level: z, tile_column: x, tile_row: y).count).to eq(1)
+      expect(db[:misses].where(zoom_level: z, tile_column: x, tile_row: y).count).to eq(0)
     end
 
     it 'skips miss when tile already exists in tiles' do
@@ -419,7 +432,7 @@ RSpec.describe TileReconstructor do
       expect(db[:misses].where(zoom_level: z, tile_column: x, tile_row: y).count).to eq(1)
     end
 
-    it 'only processes misses with status 404' do
+    it 'processes all misses regardless of status when children available' do
       z = 5
       x = 10
       y = 20
@@ -428,20 +441,20 @@ RSpec.describe TileReconstructor do
       db[:misses].insert(zoom_level: z, tile_column: x + 1, tile_row: y, ts: Time.now.to_i, status: 404)
 
       child_tile = create_test_png
-      # Create children for miss at x (status 500 - should be skipped)
+      # Create children for both misses
       (0..3).each do |i|
         db[:tiles].insert(zoom_level: z + 1, tile_column: 2 * x + (i % 2), tile_row: 2 * y + (i / 2), tile_data: Sequel.blob(child_tile))
       end
-      # Create children for miss at x+1 (status 404 - should be processed)
       (0..3).each do |i|
         db[:tiles].insert(zoom_level: z + 1, tile_column: 2 * (x + 1) + (i % 2), tile_row: 2 * y + (i / 2), tile_data: Sequel.blob(child_tile))
       end
 
       reconstructor.send(:process_miss_records, z, db, opts)
 
-      expect(db[:tiles].where(zoom_level: z, tile_column: x, tile_row: y).count).to eq(0)
+      # Both misses should be processed regardless of status
+      expect(db[:tiles].where(zoom_level: z, tile_column: x, tile_row: y).count).to eq(1)
       expect(db[:tiles].where(zoom_level: z, tile_column: x + 1, tile_row: y).count).to eq(1)
-      expect(db[:misses].where(zoom_level: z, tile_column: x, tile_row: y).count).to eq(1)
+      expect(db[:misses].where(zoom_level: z, tile_column: x, tile_row: y).count).to eq(0)
       expect(db[:misses].where(zoom_level: z, tile_column: x + 1, tile_row: y).count).to eq(0)
     end
   end
@@ -536,6 +549,67 @@ RSpec.describe TileReconstructor do
       
       # Should not raise error even if zoom 2 processing fails
       expect { inst.send(:run_reconstruction) }.not_to raise_error
+    end
+  end
+
+  describe 'transparent tile generation' do
+    it '#create_transparent_tile creates tile matching reference size' do
+      reference = create_colored_png(255, 0, 0)
+      reference_img = Vips::Image.new_from_buffer(reference, '')
+      
+      transparent = reconstructor.send(:create_transparent_tile, reference_img, 'png')
+      
+      expect(transparent).not_to be_nil
+      img = Vips::Image.new_from_buffer(transparent, '')
+      expect([img.width, img.height]).to eq([256, 256])
+      expect(img.bands).to be >= 3  # At least RGB
+    end
+
+    it '#fill_missing_tiles replaces nils with transparent' do
+      valid = create_test_png
+      children = [valid, nil, valid, nil]
+      
+      result = reconstructor.send(:fill_missing_tiles, children, 'png')
+      
+      expect(result.size).to eq(4)
+      expect(result[0]).to eq(valid)
+      expect(result[1]).not_to be_nil  # Filled with transparent
+      expect(result[2]).to eq(valid)
+      expect(result[3]).not_to be_nil  # Filled with transparent
+    end
+
+    it '#fill_missing_tiles replaces corrupted tiles' do
+      valid = create_test_png
+      corrupted = "PNG"
+      children = [valid, corrupted, valid, nil]
+      
+      result = reconstructor.send(:fill_missing_tiles, children, 'png')
+      
+      expect(result.size).to eq(4)
+      expect(result[0]).to eq(valid)
+      expect(result[1]).not_to eq(corrupted)  # Replaced with transparent
+      expect(result[2]).to eq(valid)
+      expect(result[3]).not_to be_nil  # Filled with transparent
+    end
+
+    it '#fill_missing_tiles skips corrupted when finding reference' do
+      valid = create_test_png
+      corrupted = "PNG"
+      children = [corrupted, corrupted, valid, nil]
+      
+      result = reconstructor.send(:fill_missing_tiles, children, 'png')
+      
+      expect(result.size).to eq(4)
+      expect(result[2]).to eq(valid)  # Valid reference used
+      result[0..1].each { |t| expect(t).not_to eq(corrupted) }  # Corrupted replaced
+    end
+
+    it '#fill_missing_tiles returns nils when no valid tile exists' do
+      children = ["PNG", "PNG", nil, nil]
+      
+      result = reconstructor.send(:fill_missing_tiles, children, 'png')
+      
+      expect(result).to eq([nil, nil, nil, nil])
     end
   end
 end
