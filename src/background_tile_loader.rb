@@ -10,6 +10,7 @@ class BackgroundTileLoader
     @config = route[:autoscan] || {}
     @running = false
     @tiles_today = 0
+    @tiles_processed = 0
     @current_progress = {}
 
     setup_progress_table
@@ -127,13 +128,21 @@ class BackgroundTileLoader
         @current_progress[z][:x] = curr_x
         @current_progress[z][:y] = curr_y
 
-        if fetch_tile(curr_x, curr_y, z)
+        success = fetch_tile(curr_x, curr_y, z)
+        if success
           @tiles_today += 1
-          save_progress(curr_x, curr_y, z) if @tiles_today % 10 == 0
           sleep calculate_delay
         end
+
+        @tiles_processed += 1
+        save_progress(curr_x, curr_y, z) if @tiles_processed % 10 == 0
       end
     end
+
+    final_x = @current_progress[z]&.dig(:x)
+    final_y = @current_progress[z]&.dig(:y)
+    save_progress(final_x, final_y, z) if @tiles_processed % 10 != 0
+
     LOGGER.info("Completed zoom level #{z} for #{@source_name}")
   end
 
