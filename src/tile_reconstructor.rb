@@ -314,5 +314,7 @@ class TileReconstructor
     top_row = images[0].join(images[1], :horizontal)
     bottom_row = images[2].join(images[3], :horizontal)
     bottom_row.join(top_row, :vertical)  # TMS: bottom first (Y increases southward)
+  rescue Vips::Error => e
+    raise ArgumentError, "Invalid child tile data: #{e.message}"
   end
 end
