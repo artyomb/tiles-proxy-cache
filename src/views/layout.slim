@@ -489,7 +489,7 @@ html
       |     .style('z-index', 1000);
       | 
       |   const stack = d3.stack()
-      |     .keys(['cached', 'errors', 'remaining', 'generated'])
+      |     .keys(['cached', 'generated', 'errors', 'remaining'])
       |     .order(d3.stackOrderNone)
       |     .offset(d3.stackOffsetNone)
       |     .value((d, key) => d[key] || 0);
@@ -497,8 +497,8 @@ html
       |   const series = stack(preparedData);
       | 
       |   const colorScale = d3.scaleOrdinal()
-      |     .domain(['cached', 'errors', 'remaining', 'generated'])
-      |     .range(['#6a9955', '#c75450', '#808080', '#8b4513']);
+      |     .domain(['cached', 'generated', 'errors', 'remaining'])
+      |     .range(['#6a9955', '#8b4513', '#c75450', '#808080']);
       | 
       |   const layers = svg.selectAll('.layer')
       |     .data(series)
