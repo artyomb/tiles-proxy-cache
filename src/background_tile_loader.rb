@@ -358,6 +358,9 @@ class BackgroundTileLoader
   def initialize_zoom_progress
     start_zoom = @route[:minzoom] || 1
     end_zoom = @config[:max_scan_zoom] || 20
+    
+    source_real_minzoom = @route.dig(:gap_filling, :source_real_minzoom)
+    start_zoom = [start_zoom, source_real_minzoom].compact.max if source_real_minzoom
 
     (start_zoom..end_zoom).each do |z|
       existing = @route[:db][:tile_scan_progress].where(source: @source_name, zoom_level: z).first

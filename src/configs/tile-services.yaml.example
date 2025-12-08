@@ -285,6 +285,9 @@ Example_GapFilling:
     schedule:
       time: "03:00"                       # UTC time for automatic reconstruction (HH:MM format)
                                           # If specified, reconstructor runs daily at this time
+    source_real_minzoom: 12               # Min zoom with real data in source (lower zooms are generated from children)
+                                          # Zooms < source_real_minzoom are fictitious (not requested from source)
+                                          # If not specified, all zooms are considered real (current behavior)
     output_format:
       type: "png"                         # Output format: png | webp | jpeg (always png for terrain)
       # PNG options (only if type: "png"):

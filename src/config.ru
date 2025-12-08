@@ -175,6 +175,9 @@ ROUTES.each do |_name, route|
       return serve_tile(route, tile[:tile_data], cache_status)
     end
 
+    source_real_minzoom = route.dig(:gap_filling, :source_real_minzoom)
+    return serve_no_content if source_real_minzoom && z < source_real_minzoom
+
     if (miss_status = should_skip_request?(route, z, x, y))
       return debug_mode? ? serve_error_tile(route, miss_status) : serve_no_content
     end

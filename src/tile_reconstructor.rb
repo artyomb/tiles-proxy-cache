@@ -300,12 +300,61 @@ class TileReconstructor
     end
   end
 
-  # Processes single zoom: regeneration candidates first, then misses
+  # Creates parent candidate records (generated=2) for tiles that don't exist
+  def create_parent_candidates_from_existing(z, db, minzoom)
+    parent_z = z - 1
+    return if parent_z < minzoom
+
+    parent_coords = db[:tiles]
+      .where(zoom_level: z)
+      .select(
+        Sequel.lit('tile_column / 2 AS parent_x'),
+        Sequel.lit('tile_row / 2 AS parent_y')
+      )
+      .distinct
+      .all
+
+    return if parent_coords.empty?
+
+    existing_parents = db[:tiles]
+      .where(zoom_level: parent_z)
+      .select(:tile_column, :tile_row)
+      .all
+      .map { |r| [r[:tile_column], r[:tile_row]] }
+      .to_set
+
+    new_candidates = parent_coords
+      .map { |r| [r[:parent_x], r[:parent_y]] }
+      .reject { |x, y| existing_parents.include?([x, y]) }
+
+    return if new_candidates.empty?
+
+    new_candidates.each_slice(1000) do |batch|
+      db[:tiles].insert_conflict(
+        target: [:zoom_level, :tile_column, :tile_row]
+      ).multi_insert(
+        batch.map do |x, y|
+          {
+            zoom_level: parent_z,
+            tile_column: x,
+            tile_row: y,
+            tile_data: Sequel.blob(''),
+            generated: 2
+          }
+        end
+      )
+    end
+
+    LOGGER.info("TileReconstructor: created #{new_candidates.size} parent candidates for zoom #{parent_z}")
+  end
+
+  # Processes single zoom: regeneration candidates first, then misses, then parent candidates
   def process_zoom(z, db, downsample_opts)
     LOGGER.info("TileReconstructor: processing zoom #{z}")
 
     process_regeneration_candidates(z, db, downsample_opts)
     process_miss_records(z, db, downsample_opts)
+    create_parent_candidates_from_existing(z, db, downsample_opts[:minzoom])
 
     LOGGER.debug("TileReconstructor: zoom #{z} completed")
   end
