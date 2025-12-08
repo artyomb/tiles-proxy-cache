@@ -15,6 +15,7 @@ class TileReconstructor
     @scheduler_thread = nil
     @last_run = nil
     @schedule_time = parse_schedule_time
+    @transparent_tile_data = nil
   end
 
   def start_scheduler
@@ -350,6 +351,8 @@ class TileReconstructor
 
   # Creates transparent tile matching reference image properties
   def create_transparent_tile(reference_img, format)
+    return @transparent_tile_data if @transparent_tile_data
+
     transparent = Vips::Image.black(reference_img.width, reference_img.height)
     
     # Add color channels if needed (RGB or single band)
@@ -358,7 +361,7 @@ class TileReconstructor
     # Add transparent alpha channel
     transparent = transparent.bandjoin(0)
     
-    transparent.write_to_buffer(".#{format}")
+    @transparent_tile_data = transparent.write_to_buffer(".#{format}")
   rescue Vips::Error => e
     LOGGER.warn("TileReconstructor: failed to create transparent tile: #{e.message}")
     nil
