@@ -7,7 +7,7 @@ module DatabaseManager
 
   def setup_route_database(route, route_name)
     db_path = "sqlite://" + route[:mbtiles_file]
-    db = Sequel.connect(db_path, max_connections: 8)
+    db = Sequel.connect(db_path, max_connections: 1)
 
     configure_sqlite_pragmas(db)
     create_tables(db)
@@ -83,7 +83,7 @@ module DatabaseManager
     db.run "PRAGMA journal_mode=WAL"
     db.run "PRAGMA synchronous=NORMAL"
     db.run "PRAGMA locking_mode=NORMAL"
-    db.run "PRAGMA busy_timeout=10000"
+    db.run "PRAGMA busy_timeout=30000"
     db.run "PRAGMA temp_store=MEMORY"
     db.run "PRAGMA cache_size=-131072"     # ~128 MiB
     db.run "PRAGMA mmap_size=536870912"    # 512 MiB
