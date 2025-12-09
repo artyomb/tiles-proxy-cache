@@ -36,7 +36,7 @@
         .source-name = name
         .source-actions
           a.btn.style-btn href=route[:path].gsub(/\/:[zxy]/, '') 📋 JSON Style
-          - if route[:gap_filling]
+          - if route.dig(:gap_filling, :enabled)
             a.btn.reconstruct-btn href="#" onclick="startReconstructor('#{name}', event)" id="reconstruct-btn-#{name}" ⚙️ Reconstruct
           a.btn.map-btn href="/map?source=#{name}" 🌍 Map preview
           a.btn.debug-btn href="/map?source=#{name}&debug=true" Debug Map

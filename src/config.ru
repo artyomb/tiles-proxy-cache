@@ -157,7 +157,7 @@ configure do
       loader.start_wal_checkpoint_thread
     end
 
-    if route[:gap_filling]
+    if route.dig(:gap_filling, :enabled)
       reconstructor = TileReconstructor.new(route, _name.to_s)
       route[:reconstructor] = reconstructor
       reconstructor.start_scheduler
@@ -250,6 +250,11 @@ helpers do
                                          update: { tile_data: Sequel[:excluded][:tile_data] })
                         .insert(zoom_level: z, tile_column: x, tile_row: tms,
                                 tile_data: Sequel.blob(result[:data]))
+
+      if route.dig(:gap_filling, :enabled)
+        route[:reconstructor]&.mark_parent_for_new_child(route[:db], z, x, tms, route[:minzoom])
+      end
+
       result[:data]
     end
   end

@@ -75,6 +75,43 @@ class TileReconstructor
     }
   end
 
+  # Marks parent tile for regeneration when new child tile appears
+  # Creates placeholder if parent doesn't exist, marks existing generated parent (generated=1 -> generated=2)
+  def mark_parent_for_new_child(db, child_z, child_x, child_y, minzoom)
+    parent_z = child_z - 1
+    return if parent_z < minzoom
+
+    parent_x = child_x / 2
+    parent_y = child_y / 2
+
+    parent = db[:tiles].where(
+      zoom_level: parent_z,
+      tile_column: parent_x,
+      tile_row: parent_y
+    ).first
+
+    if parent.nil?
+      db[:tiles].insert_conflict(
+        target: [:zoom_level, :tile_column, :tile_row],
+        update: { generated: Sequel[:excluded][:generated] }
+      ).insert(
+        zoom_level: parent_z,
+        tile_column: parent_x,
+        tile_row: parent_y,
+        tile_data: Sequel.blob(''),
+        generated: 2
+      )
+    elsif parent[:generated] == 1
+      db[:tiles].where(
+        zoom_level: parent_z,
+        tile_column: parent_x,
+        tile_row: parent_y
+      ).update(generated: 2)
+    end
+  rescue => e
+    LOGGER.warn("TileReconstructor: failed to mark parent for #{child_z}/#{child_x}/#{child_y}: #{e.message}")
+  end
+
   private
 
   # Parses schedule time from config, returns {hour:, minute:} or nil

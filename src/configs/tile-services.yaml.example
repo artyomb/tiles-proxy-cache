@@ -282,6 +282,7 @@ Example_GapFilling:
     tileSize: "256"                       # 256 | 512
     # encoding: "mapbox"                  # For terrain tiles: mapbox | terrarium
   gap_filling:                            # Gap filling configuration (enables tile reconstruction)
+    enabled: true                         # Enable gap filling and parent marking (default: false)
     schedule:
       time: "03:00"                       # UTC time for automatic reconstruction (HH:MM format)
                                           # If specified, reconstructor runs daily at this time

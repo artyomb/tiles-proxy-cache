@@ -30,6 +30,9 @@ class BackgroundTileLoader
         start_zoom = @route[:minzoom] || 1
         end_zoom = @config[:max_scan_zoom] || 20
 
+        source_real_minzoom = @route.dig(:gap_filling, :source_real_minzoom)
+        start_zoom = [start_zoom, source_real_minzoom].compact.max if source_real_minzoom
+
         (start_zoom..end_zoom).each { |z| scan_zoom_level(z) }
       rescue => e
         LOGGER.error("Autoscan error for #{@source_name}: #{e}")
@@ -236,6 +239,11 @@ class BackgroundTileLoader
         tile_row: tms_y(z, y),
         tile_data: Sequel.blob(data)
       )
+
+      if @route.dig(:gap_filling, :enabled)
+        @route[:reconstructor]&.mark_parent_for_new_child(@route[:db], z, x, tms_y(z, y), @route[:minzoom])
+      end
+
       true
     rescue => e
       DatabaseManager.record_miss(@route, z, x, y, 'fetch_error', "Background fetch error: #{e.message}", 500, nil)
