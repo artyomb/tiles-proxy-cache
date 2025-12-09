@@ -251,7 +251,7 @@ helpers do
                         .insert(zoom_level: z, tile_column: x, tile_row: tms,
                                 tile_data: Sequel.blob(result[:data]))
 
-      if route.dig(:gap_filling, :enabled)
+      if route.dig(:gap_filling, :enabled) && z >= route.dig(:gap_filling, :source_real_minzoom)
         route[:reconstructor]&.mark_parent_for_new_child(route[:db], z, x, tms, route[:minzoom])
       end
 
