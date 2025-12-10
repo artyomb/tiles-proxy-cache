@@ -19,6 +19,43 @@ register MapLibrePreview::Extension
 
 StackServiceBase.rack_setup self
 
+module ReconstructionCoordinator
+  def start_reconstruction
+    source = @source_name
+    route = @route
+    loader = route[:autoscan_loader]
+    was_autoscan_running = false
+    
+    if loader&.enabled?
+      was_autoscan_running = loader.stop_completely || false
+    end
+
+    success = super
+
+    unless success
+      loader.restart_scanning if was_autoscan_running && loader&.enabled?
+      return false
+    end
+
+    Thread.new do
+      begin
+        loop do
+          sleep 5
+          break unless running?
+        end
+
+        loader.restart_scanning if was_autoscan_running && loader&.enabled?
+      rescue => e
+        LOGGER.error("ReconstructionCoordinator: error resuming autoscan for #{source}: #{e.message}")
+      end
+    end
+
+    success
+  end
+end
+
+TileReconstructor.prepend(ReconstructionCoordinator)
+
 START_TIME = Time.now
 
 CONFIG_FOLDER = ENV['RACK_ENV'] == 'production' ? '/configs' : "#{__dir__}/configs"
@@ -463,7 +500,7 @@ end
 
 at_exit do
   ROUTES.each do |_name, route|
-    route[:autoscan_loader]&.stop_scanning
+    route[:autoscan_loader]&.stop_completely
     
     if route[:reconstructor]
       route[:reconstructor].stop_scheduler

@@ -12,6 +12,7 @@ class BackgroundTileLoader
     @tiles_today = 0
     @tiles_processed = 0
     @current_progress = {}
+    @wal_checkpoint_thread = nil
 
     setup_progress_table
     load_todays_progress
@@ -53,8 +54,54 @@ class BackgroundTileLoader
     LOGGER.info("Stopped autoscan for #{@source_name}")
   end
 
+  def enabled?
+    @config[:enabled] == true
+  end
+
+  def stop_completely
+    return false unless enabled?
+    
+    has_scan_thread = @running && @scan_thread&.alive?
+    has_wal_thread = @wal_checkpoint_thread&.alive?
+    return false unless has_scan_thread || has_wal_thread
+
+    LOGGER.info("Stopping autoscan completely for #{@source_name} (including WAL checkpoint)")
+
+    if has_scan_thread
+      @running = false
+      update_active_status('stopped')
+      @scan_thread&.join(5)
+      @scan_thread = nil
+    end
+
+    if has_wal_thread
+      @wal_checkpoint_thread.kill
+      @wal_checkpoint_thread.join(2)
+      @wal_checkpoint_thread = nil
+    end
+
+    LOGGER.info("Autoscan completely stopped for #{@source_name}")
+    true
+  end
+
+  def restart_scanning
+    return false unless enabled?
+    
+    if @running
+      start_wal_checkpoint_thread unless @wal_checkpoint_thread&.alive?
+      return true
+    end
+
+    LOGGER.info("Restarting autoscan for #{@source_name}")
+    start_scanning
+    start_wal_checkpoint_thread unless @wal_checkpoint_thread&.alive?
+    true
+  end
+
   def start_wal_checkpoint_thread
-    Thread.new do
+    return if @wal_checkpoint_thread&.alive?
+
+    @wal_checkpoint_thread = Thread.new do
       loop do
         sleep 15
         begin
