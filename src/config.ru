@@ -80,21 +80,19 @@ get "/api/stats" do
   content_type :json
   
   route_stats = {}
+  threads = []
+  mutex = Mutex.new
+  
   ROUTES.each do |name, route|
-    tiles_count = route[:db][:tiles].count
-    misses_count = route[:db][:misses].count
-    cache_size = get_tiles_size(route)
-    coverage_percentage = total_coverage_percentage(route)
-    coverage_data = d3_coverage_data(route, name)
-    
-    route_stats[name.to_s] = {
-      tiles_count: tiles_count,
-      misses_count: misses_count,
-      cache_size: cache_size,
-      coverage_data: coverage_data,
-      coverage_percentage: coverage_percentage
-    }
+    threads << Thread.new do
+      stats = collect_source_stats(route, name.to_s)
+      mutex.synchronize do
+        route_stats[name.to_s] = stats
+      end
+    end
   end
+  
+  threads.each(&:join)
 
   total_tiles = route_stats.values.sum { |stats| stats[:tiles_count] }
   total_misses = route_stats.values.sum { |stats| stats[:misses_count] }
