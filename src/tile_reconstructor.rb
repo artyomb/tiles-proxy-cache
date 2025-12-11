@@ -164,6 +164,8 @@ class TileReconstructor
     
     LOGGER.info("TileReconstructor: gap filling completed for #{@source_name}")
   end
+  
+  otl_def :run_reconstruction
 
   # Downsamples 4 raster tiles into one using Vips
   # Missing tiles are replaced with transparent placeholders
@@ -395,6 +397,8 @@ class TileReconstructor
 
     LOGGER.debug("TileReconstructor: zoom #{z} completed")
   end
+  
+  otl_def :process_zoom
 
   # Combines 4 tile images into 2x2 grid (TMS coordinate system)
   def combine_4_tiles(children_data)
