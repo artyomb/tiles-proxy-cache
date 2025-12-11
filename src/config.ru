@@ -172,7 +172,7 @@ def create_http_client(uri, route)
     f.request :retry, max: 2, interval: 0.2, backoff_factor: 2
     f.options.timeout = 15
     f.options.open_timeout = 10
-    f.adapter :net_http_persistent, pool_size: 10, idle_timeout: 60
+    f.adapter :net_http_persistent, pool_size: 20, idle_timeout: 60
   end
 end
 
@@ -252,10 +252,15 @@ helpers do
     route[:db][:tiles].where(zoom_level: z, tile_column: x, tile_row: tms).select(:tile_data, :generated).first
   end
 
+  def blob_to_string(blob)
+    return blob if blob.is_a?(String)
+    blob.respond_to?(:read) ? blob.read : blob.to_s
+  end
+
   def serve_tile(route, blob, status)
     headers build_response_headers(route, status)
     content_type route[:content_type]
-    blob
+    blob_to_string(blob)
   end
 
   def serve_error_tile(route, status_code)
@@ -272,7 +277,7 @@ helpers do
   def fetch_with_lock(route, z, x, y, tms)
     route[:locks][key(z, x, y)].synchronize do
       tile = get_cached_tile(route, z, x, tms)
-      return tile[:tile_data] if tile
+      return blob_to_string(tile[:tile_data]) if tile
 
       result = fetch_http(route:, x: x, y: y, z: z)
 
