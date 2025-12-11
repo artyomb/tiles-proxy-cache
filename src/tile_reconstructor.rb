@@ -293,6 +293,8 @@ class TileReconstructor
     end
   end
 
+  otl_def :process_regeneration_candidates
+
   # Processes miss records for given zoom
   def process_miss_records(z, db, downsample_opts)
     minzoom = downsample_opts[:minzoom]
@@ -338,6 +340,8 @@ class TileReconstructor
       end
     end
   end
+
+  otl_def :process_miss_records
 
   # Creates parent candidate records (generated=2) for tiles that don't exist
   def create_parent_candidates_from_existing(z, db, minzoom)
@@ -386,6 +390,8 @@ class TileReconstructor
 
     LOGGER.info("TileReconstructor: created #{new_candidates.size} parent candidates for zoom #{parent_z}")
   end
+
+  otl_def :create_parent_candidates_from_existing
 
   # Processes single zoom: regeneration candidates first, then misses, then parent candidates
   def process_zoom(z, db, downsample_opts)
