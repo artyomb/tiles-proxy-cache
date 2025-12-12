@@ -393,12 +393,12 @@ class TileReconstructor
 
   otl_def :create_parent_candidates_from_existing
 
-  # Processes single zoom: regeneration candidates first, then misses, then parent candidates
+  # Processes single zoom: regeneration candidates first, then parent candidates
   def process_zoom(z, db, downsample_opts)
     LOGGER.info("TileReconstructor: processing zoom #{z}")
 
     process_regeneration_candidates(z, db, downsample_opts)
-    process_miss_records(z, db, downsample_opts)
+    #process_miss_records(z, db, downsample_opts)  # Disabled: redundant with create_parent_candidates_from_existing
     create_parent_candidates_from_existing(z, db, downsample_opts[:minzoom])
 
     LOGGER.debug("TileReconstructor: zoom #{z} completed")
