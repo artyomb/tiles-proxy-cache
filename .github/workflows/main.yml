@@ -9,7 +9,7 @@ jobs:
         with: { username: '${{ secrets.DOCKER_HUB_LOGIN }}', password: '${{ secrets.DOCKER_HUB_PASSWORD }}' }
       - uses: docker/setup-buildx-action@v3
       - uses: ruby/setup-ruby@v1
-        with: { ruby-version: 3.4.4 }
+        with: { ruby-version: 4.0.0-preview2 }
       - run: gem install build-labels
       - run: env && cd docker && build-labels -n -c docker-compose.yml $(if [ "${GITHUB_REF##*/}" = "release" ]; then echo "--full-version"; fi) github set_version to_dockerfiles to_compose | tee bake.yml
         env:
