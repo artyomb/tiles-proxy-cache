@@ -374,10 +374,11 @@ class BackgroundTileLoader
 
   def load_todays_progress
     today = Date.today.to_s
-    total = @route[:db][:tile_scan_progress]
-              .where(source: @source_name, last_scan_date: today)
-              .sum(:tiles_today) || 0
-    @tiles_today = total
+    rows = @route[:db][:tile_scan_progress]
+             .where(source: @source_name, last_scan_date: today)
+             .select(:tiles_today)
+             .all
+    @tiles_today = rows.sum { |row| row[:tiles_today].to_i }
   end
 
   def tms_y(z, y)
