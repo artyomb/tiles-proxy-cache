@@ -2,7 +2,7 @@ source 'https://rubygems.org'
 
 gem 'sinatra'
 gem 'slim'
-gem 'async', '~> 2.34.0'
+gem 'async'
 gem 'sequel'
 gem 'pg'
 gem 'sqlite3'
