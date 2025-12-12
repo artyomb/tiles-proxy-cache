@@ -1,7 +1,7 @@
 GEM
   remote: https://rubygems.org/
   specs:
-    async (2.35.0)
+    async (2.34.0)
       console (~> 1.29)
       fiber-annotation
       io-event (~> 1.11)
@@ -459,7 +459,7 @@ PLATFORMS
   x86_64-linux
 
 DEPENDENCIES
-  async
+  async (~> 2.34.0)
   async-rspec
   autoforme
   falcon
@@ -485,7 +485,7 @@ DEPENDENCIES
   yard
 
 CHECKSUMS
-  async (2.35.0) sha256=0f792ce968023677669fb8608d0b16585332247181ed5417b4ff45900201e834
+  async (2.34.0) sha256=65ab207d4575c05bb6c5bac430f9f8d372d8288686e68e89f44eba094c77e1c1
   async-container (0.27.7) sha256=fe9c835168562d5126f8c90c727e5494aa93258d50e997d353be72fce6f4b85c
   async-container-supervisor (0.9.2) sha256=dcdbced388ca6e27e20ade3465066e6f6a7c31ca122cd14f8da63616eae17ad9
   async-http (0.92.1) sha256=66db56854cd9173b2f4e3b55f6ba48e15021e316425f0275e310a1d9ab173d59
