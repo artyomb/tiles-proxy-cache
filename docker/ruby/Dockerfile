@@ -23,6 +23,7 @@ RUN bundle install --jobs $(nproc) --retry=3 && \
     bundle clean --force && rm -rf /usr/local/bundle/cache/*
 
 COPY . /app
+RUN ls -la /app
 
 RUN cd /app/ext && ruby extconf.rb && make && \
     ruby terrain_downsample_extconf.rb && make
@@ -49,7 +50,7 @@ COPY --from=base /app/ext/ /app/ext/
 # Force start & wait test Stage
 # COPY --from=tests /app/src/spec/results /app/src/spec/results
 
-COPY . /app
+COPY --from=base /app /app
 
 RUN mkdir -p /etc/ssl/openssl.cnf.d && cp /app/gost.conf /etc/ssl/openssl.cnf.d/gost.conf
 

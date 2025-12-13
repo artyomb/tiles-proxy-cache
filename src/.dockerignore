@@ -1,0 +1,9 @@
+*.mbtiles
+*.mbtiles-shm
+*.mbtiles-wal
+coverage
+ext/*.o
+ext/*.so
+ext/Makefile
+ext/mkmf.log
+.env.local
