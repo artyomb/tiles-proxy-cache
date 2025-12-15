@@ -14,10 +14,14 @@ require_relative 'metadata_manager'
 require_relative 'background_tile_loader'
 require_relative 'database_manager'
 require_relative 'tile_reconstructor'
+require_relative 'observability_setup'
 
 register MapLibrePreview::Extension
 
 StackServiceBase.rack_setup self
+
+setup_sequel_logging
+setup_faraday_otel_patch
 
 module ReconstructionCoordinator
   def start_reconstruction
@@ -229,6 +233,7 @@ end
 
 helpers do
   include ViewHelpers
+  include ObservabilityHelpers
 
   def tms_y(z, y) = (1 << z) - 1 - y
 
@@ -327,7 +332,7 @@ helpers do
     target_path += "?#{URI.encode_www_form(route[:query_params])}" if route[:query_params]
 
     headers = build_request_headers(route)
-    response = route[:client].get(target_path, nil, headers)
+    response = without_http_tracing { route[:client].get(target_path, nil, headers) }
 
     return handle_response_error(response, route, z, x, y) if (error = validate_response(response, route))
 
@@ -419,7 +424,7 @@ helpers do
     if include_body && response.body && !response.body.empty?
       content_type = response.headers['content-type'] || ''
       unless content_type.include?('octet-stream') || content_type.include?('image/')
-        body_preview = response.body.force_encoding('UTF-8').strip[0, 200]
+        body_preview = response.body.dup.force_encoding('UTF-8').scrub('?').strip[0, 200]
         body_preview += "..." if response.body.length > 200
         details << body_preview
       end
