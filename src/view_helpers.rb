@@ -93,7 +93,7 @@ module ViewHelpers
     bounds = route.dig(:metadata, :bounds).split(',')&.map(&:to_f)
 
     tile_path = route[:path].gsub(':z', '{z}').gsub(':x', '{x}').gsub(':y', '{y}')
-    script_name = request.script_name.to_s
+    script_name = request.env['HTTP_X_FORWARDED_PREFIX'] || request.script_name.to_s
     tile_url = "#{base_url}#{script_name}#{tile_path}"
     tile_url += '?debug=true' if debug_mode
 
