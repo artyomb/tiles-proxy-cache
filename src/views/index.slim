@@ -22,7 +22,7 @@
     | Application Configuration
     .header-buttons
       a.btn href="#" onclick="toggleGlobalConfig()" 📋 View Config
-      a.btn href="/db" 🗄️ Database Viewer
+      a.btn href=url("/db") 🗄️ Database Viewer
   
   .global-config.hidden id="global-config"
     .config-yaml
@@ -35,11 +35,11 @@
       .source-header
         .source-name = name
         .source-actions
-          a.btn.style-btn href=route[:path].gsub(/\/:[zxy]/, '') 📋 JSON Style
+          a.btn.style-btn href=url(route[:path].gsub(/\/:[zxy]/, '')) 📋 JSON Style
           - if route.dig(:gap_filling, :enabled)
             a.btn.reconstruct-btn href="#" onclick="startReconstructor('#{name}', event)" id="reconstruct-btn-#{name}" ⚙️ Reconstruct
-          a.btn.map-btn href="/map?source=#{name}" 🌍 Map preview
-          a.btn.debug-btn href="/map?source=#{name}&debug=true" Debug Map
+          a.btn.map-btn href=url("/map?source=#{name}") 🌍 Map preview
+          a.btn.debug-btn href=url("/map?source=#{name}&debug=true") Debug Map
       
       .source-main-info
         .info-grid
@@ -79,6 +79,9 @@
               .info-value = route.dig(:autoscan, :max_scan_zoom) || 'N/A'
 
 javascript:
+  const BASE_PATH = '#{@base_path}';
+  const apiPath = (path) => BASE_PATH + path;
+  
   const setBtn = (btn, running) => {
     btn.disabled = running;
     btn.textContent = running ? '⏳ Running...' : '⚙️ Reconstruct';
@@ -86,7 +89,7 @@ javascript:
   
   const pollStatus = (src, btn, onComplete) => {
     const iv = setInterval(() => 
-      fetch(`/api/reconstructor/${src}/status`)
+      fetch(apiPath(`/api/reconstructor/${src}/status`))
         .then(r => r.json())
         .then(d => {
           if (!d.running) {
@@ -105,7 +108,7 @@ javascript:
     const btn = document.getElementById(`reconstruct-btn-${src}`);
     showModal('Confirm Action', `Start tile reconstruction for ${src}?`, () => {
       setBtn(btn, true);
-      fetch(`/api/reconstructor/${src}/start`, { method: 'POST' })
+      fetch(apiPath(`/api/reconstructor/${src}/start`), { method: 'POST' })
         .then(r => r.json())
         .then(data => {
           if (data.success) {
@@ -121,7 +124,7 @@ javascript:
   
   document.addEventListener('DOMContentLoaded', () => {
     setTimeout(() => {
-      fetch('/api/stats')
+      fetch(apiPath('/api/stats'))
         .then(r => r.json())
         .then(data => {
           ['total-tiles', 'total-misses', 'total-cache-size'].forEach((id, i) => {
@@ -145,7 +148,7 @@ javascript:
           
           document.querySelectorAll('[id^="reconstruct-btn-"]').forEach(btn => {
             const src = btn.id.replace('reconstruct-btn-', '');
-            fetch(`/api/reconstructor/${src}/status`)
+            fetch(apiPath(`/api/reconstructor/${src}/status`))
               .then(r => r.json())
               .then(d => { if (d.running) { setBtn(btn, true); pollStatus(src, btn); } })
               .catch(() => {});
