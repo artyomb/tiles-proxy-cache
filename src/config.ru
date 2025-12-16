@@ -424,7 +424,7 @@ helpers do
     if include_body && response.body && !response.body.empty?
       content_type = response.headers['content-type'] || ''
       unless content_type.include?('octet-stream') || content_type.include?('image/')
-        body_preview = response.body.dup.force_encoding('UTF-8').scrub('?').strip[0, 200]
+        body_preview = response.body.dup.force_encoding('UTF-8').scrub('?').strip.gsub(/[\r\n\t]+/, ' ')[0, 200]
         body_preview += "..." if response.body.length > 200
         details << body_preview
       end
