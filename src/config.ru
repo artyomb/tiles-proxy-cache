@@ -20,9 +20,6 @@ register MapLibrePreview::Extension
 
 StackServiceBase.rack_setup self
 
-setup_sequel_logging
-setup_faraday_otel_patch
-
 module ReconstructionCoordinator
   def start_reconstruction
     source = @source_name
@@ -233,7 +230,6 @@ end
 
 helpers do
   include ViewHelpers
-  include ObservabilityHelpers
 
   def tms_y(z, y) = (1 << z) - 1 - y
 
@@ -332,7 +328,7 @@ helpers do
     target_path += "?#{URI.encode_www_form(route[:query_params])}" if route[:query_params]
 
     headers = build_request_headers(route)
-    response = without_http_tracing { route[:client].get(target_path, nil, headers) }
+    response = route[:client].get(target_path, nil, headers)
 
     return handle_response_error(response, route, z, x, y) if (error = validate_response(response, route))
 

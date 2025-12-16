@@ -204,7 +204,7 @@ class BackgroundTileLoader
     return false if tile_exists?(x, y, z)
 
     begin
-      response = ObservabilityHelpers.without_http_tracing { @route[:client].get(target_url, nil, headers) }
+      response = @route[:client].get(target_url, nil, headers)
       
       unless response.success?
         DatabaseManager.record_miss(@route, z, x, y, 'http_error', "HTTP #{response.status}", response.status, response.body)
