@@ -73,7 +73,6 @@ get "/" do
   @total_sources = ROUTES.length
   @uptime = Time.now - START_TIME
   @original_config = ROUTES.transform_values { |route| route.slice(*SAFE_KEYS) }
-  @base_path = base_path
   
   slim :index
 end
@@ -113,21 +112,17 @@ end
 get "/db" do
   source, route = validate_and_get_route(params[:source] || ROUTES.keys.first.to_s)
   @source, @route = source, route.slice(*DB_SAFE_KEYS)
-  @base_path = base_path
   slim :database
 end
 
 get "/map" do
   if params[:source]
     _, route = validate_and_get_route(params[:source])
-    style_path = route[:path].gsub(/\/:[zxy]/, '')
-    script_name = request.script_name.to_s
-    style_url = "#{request.base_url}#{script_name}#{style_path}"
+    style_url = "#{request.base_url}#{route[:path].gsub(/\/:[zxy]/, '')}"
     style_url += "?debug=true" if params[:debug] == 'true'
     
     params[:style_url] = style_url
   end
-  @base_path = base_path
   slim :maplibre_map, layout: :maplibre_layout
 end
 
@@ -235,10 +230,6 @@ end
 
 helpers do
   include ViewHelpers
-
-  def base_path
-    request.script_name.to_s
-  end
 
   def tms_y(z, y) = (1 << z) - 1 - y
 
