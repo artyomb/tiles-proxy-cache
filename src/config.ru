@@ -121,7 +121,7 @@ get "/map" do
   if params[:source]
     _, route = validate_and_get_route(params[:source])
     style_path = route[:path].gsub(/\/:[zxy]/, '')
-    script_name = base_path
+    script_name = request.script_name.to_s
     style_url = "#{request.base_url}#{script_name}#{style_path}"
     style_url += "?debug=true" if params[:debug] == 'true'
     
@@ -237,11 +237,7 @@ helpers do
   include ViewHelpers
 
   def base_path
-    request.env['HTTP_X_FORWARDED_PREFIX'] || request.script_name.to_s
-  end
-
-  def url(path)
-    (base = base_path).empty? ? path : "#{base.chomp('/')}#{path}"
+    request.script_name.to_s
   end
 
   def tms_y(z, y) = (1 << z) - 1 - y
