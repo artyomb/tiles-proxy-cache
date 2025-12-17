@@ -4,7 +4,7 @@ html
     meta[charset="utf-8"]
     title Tiles Proxy Cache
     meta[name="viewport" content="width=device-width, initial-scale=1.0"]
-    link[rel="icon" type="image/png" href="/icons/favicon.png"]
+    link[rel="icon" type="image/png" href=url_for("/icons/favicon.png")]
     style
       | * { margin: 0; padding: 0; box-sizing: border-box; }
       | body { 
@@ -377,7 +377,7 @@ html
       .header
         .header-content
           div
-            img[src="/icons/favicon.png" alt="Tiles Proxy Cache" style="width: 75px; height: 75px; margin-right: 16px; vertical-align: top; float: left;"]
+            img[src=url_for("/icons/favicon.png") alt="Tiles Proxy Cache" style="width: 75px; height: 75px; margin-right: 16px; vertical-align: top; float: left;"]
             div[style="margin-left: 64px;"]
               h1 Tiles Proxy Cache
               p High-performance tile caching and proxy service for map services

@@ -69,9 +69,9 @@ html
       .section
         .section-title Navigation
         .nav
-          a.btn-home href="/" title="Home" 🏠 Home
+          a.btn-home href=url_for("/") title="Home" 🏠 Home
           - ROUTES.each do |name, route|
-            a.btn class="#{name.to_s == @source ? 'btn-primary' : ''}" href="/db?source=#{name}" #{name}
+            a.btn class="#{name.to_s == @source ? 'btn-primary' : ''}" href=url_for("/db?source=#{name}") #{name}
 
       .section
         .section-title Statistics
@@ -93,7 +93,7 @@ html
             - current_table = params[:table] || 'tiles'
             - tables = [{ name: 'tiles', count: @route[:db][:tiles].count, title: 'Tiles' }, { name: 'misses', count: @route[:db][:misses].count, title: 'Misses' }, { name: 'metadata', count: @route[:db][:metadata].count, title: 'Metadata' }, { name: 'tile_scan_progress', count: (@route[:db].table_exists?(:tile_scan_progress) ? @route[:db][:tile_scan_progress].count : 0), title: 'Autoscan Progress' }]
             - tables.each do |table|
-              a.table-item class="#{table[:name] == current_table ? 'active' : ''}" href="/db?source=#{@source}&table=#{table[:name]}"
+              a.table-item class="#{table[:name] == current_table ? 'active' : ''}" href=url_for("/db?source=#{@source}&table=#{table[:name]}")
                 .table-name = table[:title]
                 .table-count = "#{table[:count]} records"
 
@@ -124,11 +124,13 @@ html
                 | Showing #{offset + 1}-#{[offset + per_page, total_count].min} of #{total_count} records
               .pagination-controls
                 - if page > 1
-                  a.pagination-btn href="/db?source=#{@source}&table=#{current_table}&page=#{page-1}" ← Previous
+                  a.pagination-btn href=url_for("/db?source=#{@source}&table=#{current_table}&page=#{page-1}") ← Previous
                 - if page < total_pages
-                  a.pagination-btn href="/db?source=#{@source}&table=#{current_table}&page=#{page+1}" Next →
+                  a.pagination-btn href=url_for("/db?source=#{@source}&table=#{current_table}&page=#{page+1}") Next →
 
 javascript:
+  const BASE_PATH = '#{base_path}';
+  
   const runVacuum = async () => {
     const button = document.querySelector('.btn-vacuum');
     const originalText = button.innerHTML;
@@ -144,7 +146,7 @@ javascript:
     setButtonState('Running...', true, '0.7');
     
     try {
-      const { status, message } = await fetch('/admin/vacuum').then(r => r.json());
+      const { status, message } = await fetch(`${BASE_PATH}/admin/vacuum`).then(r => r.json());
       setButtonState(status === 'success' ? 'Started' : 'Failed');
       setTimeout(resetButton, status === 'success' ? 2000 : 3000);
     } catch (error) {

@@ -20,6 +20,18 @@ register MapLibrePreview::Extension
 
 StackServiceBase.rack_setup self
 
+BASE_PATH = ENV.fetch('BASE_PATH', '/tiles-proxy').sub(/\/$/, '')
+
+set :public_folder, "#{__dir__}/public"
+
+use Rack.middleware_klass do |env, app|
+  if BASE_PATH != '' && env['PATH_INFO'].start_with?(BASE_PATH)
+    env['SCRIPT_NAME'] = BASE_PATH
+    env['PATH_INFO'] = env['PATH_INFO'].sub(BASE_PATH, '') || '/'
+  end
+  app.call env
+end
+
 module ReconstructionCoordinator
   def start_reconstruction
     source = @source_name
@@ -230,6 +242,14 @@ end
 
 helpers do
   include ViewHelpers
+
+  def base_path
+    request.script_name
+  end
+
+  def url_for(path)
+    "#{base_path}#{path}"
+  end
 
   def tms_y(z, y) = (1 << z) - 1 - y
 
