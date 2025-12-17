@@ -163,10 +163,10 @@ class TileReconstructor
   def load_children_coords(db, z)
     coords = Set.new
     begin
-      db[:tiles].where(zoom_level: z, generated: 0).select(:tile_column, :tile_row).each do |tile|
+      db[:tiles].where(zoom_level: z).select(:tile_column, :tile_row).each do |tile|
         coords.add([tile[:tile_column], tile[:tile_row]])
       end
-      LOGGER.info("TileReconstructor: loaded #{coords.size} original child tiles for zoom #{z}")
+      LOGGER.info("TileReconstructor: loaded #{coords.size} child tiles for zoom #{z}")
     rescue => e
       LOGGER.error("TileReconstructor: failed to load children coords for zoom #{z}: #{e.message}")
       raise
@@ -311,6 +311,8 @@ class TileReconstructor
       parent_info = coord_to_parent[coord_key]
       next unless parent_info
 
+      next if is_fully_transparent?(tile[:tile_data])
+
       parent_coords, idx = parent_info
       loaded_data[parent_coords] ||= [nil, nil, nil, nil]
       loaded_data[parent_coords][idx] = tile[:tile_data]
@@ -449,5 +451,20 @@ class TileReconstructor
   rescue Vips::Error => e
     LOGGER.warn("TileReconstructor: failed to create transparent tile: #{e.message}")
     nil
+  end
+
+  # Checks if tile is fully transparent (all alpha channel values are 0)
+  # Returns false if tile has no alpha channel (considered as having data)
+  # Returns true only if tile has alpha channel and all pixels are fully transparent
+  def is_fully_transparent?(tile_data)
+    return false unless tile_data
+
+    img = Vips::Image.new_from_buffer(tile_data, '')
+    return false unless img.bands == 4
+
+    alpha = img[3]
+    alpha.max == 0
+  rescue Vips::Error
+    false
   end
 end
