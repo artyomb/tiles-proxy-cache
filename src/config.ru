@@ -128,7 +128,7 @@ end
 get "/map" do
   if params[:source]
     _, route = validate_and_get_route(params[:source])
-    style_url = "#{request.base_url}#{route[:path].gsub(/\/:[zxy]/, '')}"
+    style_url = "#{request.base_url}#{request.script_name}#{route[:path].gsub(/\/:[zxy]/, '')}"
     style_url += "?debug=true" if params[:debug] == 'true'
     
     params[:style_url] = style_url
