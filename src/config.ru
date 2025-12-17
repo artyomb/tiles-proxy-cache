@@ -20,15 +20,13 @@ register MapLibrePreview::Extension
 
 StackServiceBase.rack_setup self
 
-BASE_PATH = ENV.fetch('BASE_PATH', '/tiles-proxy').sub(/\/$/, '')
-
 set :public_folder, "#{__dir__}/public"
 
 use Rack.middleware_klass do |env, app|
-  if BASE_PATH != '' && env['PATH_INFO'].start_with?(BASE_PATH)
-    env['SCRIPT_NAME'] = BASE_PATH
-    env['PATH_INFO'] = env['PATH_INFO'].sub(BASE_PATH, '') || '/'
-  end
+  env['PATH_INFO'].gsub!(/^\/tiles-proxy/, '')
+  env['PATH_INFO'] = '/' if env['PATH_INFO'].empty?
+  env['SCRIPT_NAME'] = '/tiles-proxy'
+  
   app.call env
 end
 
