@@ -1,7 +1,6 @@
-FROM ruby:4.0.0-preview2-slim-bookworm AS base
+FROM ruby:3.4.7-slim-bookworm AS base
 
 RUN apt update && apt --fix-missing install -y build-essential pkg-config libpq-dev curl cmake libssl-dev libengine-gost-openssl file libvips42 libyaml-dev libpng-dev \
-     libffi-dev autoconf automake libtool \
      && rm -rf /var/lib/apt/lists/*
 
 # Build LERC from source (v4.0.0)
@@ -37,7 +36,7 @@ RUN rake -T | grep 'rake build' && rake build || echo 'no build task'
 FROM base AS tests
 RUN bundle exec rspec
 
-FROM ruby:4.0.0-preview2-slim-bookworm AS deploy
+FROM ruby:3.4.7-slim-bookworm AS deploy
 RUN apt update && apt install --fix-missing -y bash curl libssl-dev libengine-gost-openssl bash curl wget libpq-dev file libvips42 libyaml-dev libpng16-16 \
      && rm -rf /var/lib/apt/lists/*
 
