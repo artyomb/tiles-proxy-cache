@@ -150,7 +150,7 @@ class TileReconstructor
       break unless @running
 
       begin
-        generated_count += 1 if process_parent(parent_coords, z, parent_z, db, downsample_opts)
+        generated_count += 1 if process_parent(parent_coords, z, parent_z, db, downsample_opts, minzoom)
         processed_count += 1
       rescue => e
         LOGGER.warn("TileReconstructor: failed to process parent #{parent_z}/#{parent_coords[0]}/#{parent_coords[1]}: #{e.message}")
@@ -164,18 +164,18 @@ class TileReconstructor
 
   # Processes single parent tile: loads parent + children, validates, decides, generates
   # Returns: true if tile was generated/updated, false otherwise
-  def process_parent(parent_coords, z, parent_z, db, downsample_opts)
+  def process_parent(parent_coords, z, parent_z, db, downsample_opts, minzoom)
     px, py = parent_coords
     child_coords = calculate_child_coords(px, py)
 
-    parent_tile, children_tiles = load_parent_and_children(px, py, z, parent_z, child_coords, db)
+    parent_tile, children_tiles, grandparent_tile = load_parent_and_children(px, py, z, parent_z, child_coords, db, minzoom)
     parent_valid = validate_parent_tile(parent_tile)
 
     children_data_array, used_count = validate_children_tiles(children_tiles, child_coords)
 
     return false unless should_generate_parent?(parent_tile, parent_valid, used_count)
 
-    generate_and_save_parent(px, py, parent_z, children_data_array, used_count, downsample_opts, db)
+    generate_and_save_parent(px, py, parent_z, children_data_array, used_count, downsample_opts, db, minzoom, grandparent_tile)
   end
 
   # Loads all tiles for a zoom level (coordinates only, no blob)
@@ -202,9 +202,14 @@ class TileReconstructor
     ]
   end
 
-  # Loads parent and children tiles from database in single query
-  # Returns: [parent_tile, children_tiles]
-  def load_parent_and_children(px, py, z, parent_z, child_coords, db)
+  # Loads parent, children, and grandparent tiles from database in single query
+  # Grandparent is loaded without blob (only generated) for quality regeneration marking
+  # Returns: [parent_tile, children_tiles, grandparent_tile]
+  def load_parent_and_children(px, py, z, parent_z, child_coords, db, minzoom)
+    grandparent_z = parent_z - 1
+    gpx = px / 2
+    gpy = py / 2
+
     parent_condition = Sequel.&(
       Sequel[:zoom_level] => parent_z,
       Sequel[:tile_column] => px,
@@ -219,14 +224,26 @@ class TileReconstructor
       )
     end
 
-    all_tiles = db[:tiles].where { Sequel.|(parent_condition, *child_conditions) }
+    conditions = [parent_condition, *child_conditions]
+
+    if grandparent_z >= minzoom
+      grandparent_condition = Sequel.&(
+        Sequel[:zoom_level] => grandparent_z,
+        Sequel[:tile_column] => gpx,
+        Sequel[:tile_row] => gpy
+      )
+      conditions << grandparent_condition
+    end
+
+    all_tiles = db[:tiles].where { Sequel.|(*conditions) }
                           .select(:zoom_level, :tile_column, :tile_row, :tile_data, :generated)
                           .to_a
 
     parent_tile = all_tiles.find { |t| t[:zoom_level] == parent_z && t[:tile_column] == px && t[:tile_row] == py }
     children_tiles = all_tiles.select { |t| t[:zoom_level] == z }
+    grandparent_tile = grandparent_z >= minzoom ? all_tiles.find { |t| t[:zoom_level] == grandparent_z && t[:tile_column] == gpx && t[:tile_row] == gpy } : nil
 
-    [parent_tile, children_tiles]
+    [parent_tile, children_tiles, grandparent_tile]
   end
 
   def validate_parent_tile(parent_tile)
@@ -274,6 +291,8 @@ class TileReconstructor
       !parent_valid
     elsif parent_tile[:generated] == -1
       true
+    elsif parent_tile[:generated] == -5
+      true
     elsif (1..4).include?(parent_tile[:generated])
       used_count != parent_tile[:generated]
     else
@@ -281,7 +300,7 @@ class TileReconstructor
     end
   end
 
-  def generate_and_save_parent(px, py, parent_z, children_data_array, used_count, downsample_opts, db)
+  def generate_and_save_parent(px, py, parent_z, children_data_array, used_count, downsample_opts, db, minzoom, grandparent_tile)
     new_data = send(downsample_opts[:method], children_data_array, **downsample_opts[:args])
     return false unless new_data
 
@@ -299,12 +318,22 @@ class TileReconstructor
         tile_data: Sequel.blob(new_data),
         generated: used_count
       )
+
+      mark_grandparent_for_regeneration(grandparent_tile, db) if grandparent_tile && grandparent_tile[:generated] != 0
     end
 
     true
   rescue => e
     LOGGER.warn("TileReconstructor: failed to generate tile #{parent_z}/#{px}/#{py}: #{e.message}")
     false
+  end
+
+  def mark_grandparent_for_regeneration(grandparent_tile, db)
+    db[:tiles].where(
+      zoom_level: grandparent_tile[:zoom_level],
+      tile_column: grandparent_tile[:tile_column],
+      tile_row: grandparent_tile[:tile_row]
+    ).update(generated: -5)
   end
 
   def validate_tile(tile_data)
