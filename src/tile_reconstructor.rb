@@ -169,13 +169,17 @@ class TileReconstructor
     child_coords = calculate_child_coords(px, py)
 
     parent_tile, children_tiles, grandparent_tile = load_parent_and_children(px, py, z, parent_z, child_coords, db, minzoom)
-    parent_valid = validate_parent_tile(parent_tile)
+    parent_validation = validate_parent_tile(parent_tile)
+    # parent_valid should be true only for :valid and :partial_transparent
+    # false for :transparent, :invalid, :corrupted, or nil
+    parent_valid = [:valid, :partial_transparent].include?(parent_validation)
+    parent_partial_transparency = parent_validation == :partial_transparent
 
     children_data_array, used_count = validate_children_tiles(children_tiles, child_coords)
 
-    return false unless should_generate_parent?(parent_tile, parent_valid, used_count)
+    return false unless should_generate_parent?(parent_tile, parent_valid, used_count, parent_partial_transparency)
 
-    generate_and_save_parent(px, py, parent_z, children_data_array, used_count, downsample_opts, db, minzoom, grandparent_tile)
+    generate_and_save_parent(px, py, parent_z, children_data_array, used_count, downsample_opts, db, grandparent_tile, parent_tile, parent_validation)
   end
 
   # Loads all tiles for a zoom level (coordinates only, no blob)
@@ -247,18 +251,18 @@ class TileReconstructor
   end
 
   def validate_parent_tile(parent_tile)
-    return false unless parent_tile
+    return nil unless parent_tile
 
     case parent_tile[:generated]
     when 0
-      validation = validate_tile(parent_tile[:tile_data])
-      validation == :valid
+      # For original tiles, validate the actual data
+      validate_tile(parent_tile[:tile_data])
     when 1..4
-      true
+      :valid
     when -1
-      false
+      :invalid
     else
-      true
+      :valid
     end
   end
 
@@ -273,7 +277,7 @@ class TileReconstructor
       next if tile[:generated] == -1
 
       validation = validate_tile(tile[:tile_data])
-      if validation == :valid
+      if [:valid, :partial_transparent].include?(validation)
         children_data_array[idx] = tile[:tile_data]
         used_count += 1
       end
@@ -282,8 +286,10 @@ class TileReconstructor
     [children_data_array, used_count]
   end
 
-  def should_generate_parent?(parent_tile, parent_valid, used_count)
+  def should_generate_parent?(parent_tile, parent_valid, used_count, parent_partial_transparency = false)
     return false if used_count == 0
+
+    return true if parent_partial_transparency
 
     if parent_tile.nil?
       true
@@ -300,8 +306,16 @@ class TileReconstructor
     end
   end
 
-  def generate_and_save_parent(px, py, parent_z, children_data_array, used_count, downsample_opts, db, minzoom, grandparent_tile)
-    new_data = send(downsample_opts[:method], children_data_array, **downsample_opts[:args])
+  def generate_and_save_parent(px, py, parent_z, children_data_array, used_count, downsample_opts, db, grandparent_tile, parent_tile, parent_validation)
+    child_data = send(downsample_opts[:method], children_data_array, **downsample_opts[:args])
+    return false unless child_data
+
+    new_data = if parent_validation == :partial_transparent && parent_tile
+                 composite_parent_over_child(parent_tile[:tile_data], child_data, downsample_opts[:args][:format])
+               else
+                 child_data
+               end
+
     return false unless new_data
 
     db.transaction do
@@ -336,6 +350,9 @@ class TileReconstructor
     ).update(generated: -5)
   end
 
+  # Validates tile and returns its status
+  # Returns: :valid (no alpha or fully opaque), :partial_transparent (has alpha with some transparency),
+  #          :transparent (fully transparent), or :corrupted
   def validate_tile(tile_data)
     return :corrupted unless tile_data
     return :corrupted if tile_data.nil?
@@ -343,11 +360,28 @@ class TileReconstructor
     img = Vips::Image.new_from_buffer(tile_data, '')
     return :valid unless img.bands == 4
 
-    # Check if all alpha channel values are 0 (fully transparent)
     alpha = img[3]
-    alpha.max == 0 ? :transparent : :valid
+    alpha_max = alpha.max
+    alpha_min = alpha.min
+    return :transparent if alpha_max == 0
+    return :partial_transparent if alpha_min == 0 && alpha_max > 0
+    :valid
   rescue Vips::Error
     :corrupted
+  end
+
+  def composite_parent_over_child(parent_data, child_data, format)
+    parent_img = Vips::Image.new_from_buffer(parent_data, '')
+    child_img = Vips::Image.new_from_buffer(child_data, '')
+
+    child_img = child_img.bandjoin(255) if child_img.bands < 4
+
+    # Composite parent over child using 'over' blend mode
+    result = parent_img.composite2(child_img, :over)
+    result.write_to_buffer(".#{format}")
+  rescue Vips::Error => e
+    LOGGER.warn("TileReconstructor: failed to composite parent over child: #{e.message}")
+    nil
   end
 
   def build_downsample_opts(route)
