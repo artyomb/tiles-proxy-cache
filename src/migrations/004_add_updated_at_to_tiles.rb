@@ -8,7 +8,9 @@ Sequel.migration do
       alter_table(:tiles) do
         add_column :updated_at, DateTime
       end
-
+      
+      run "UPDATE tiles SET updated_at = datetime('now', 'utc') WHERE updated_at IS NULL"
+      
       run <<-SQL
         CREATE TRIGGER IF NOT EXISTS tiles_set_updated_at_on_insert
         AFTER INSERT ON tiles
