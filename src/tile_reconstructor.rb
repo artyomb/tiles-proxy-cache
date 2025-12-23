@@ -78,6 +78,28 @@ class TileReconstructor
 
   private
 
+  def save_last_run_timestamp(db)
+    db[:metadata].insert_conflict(
+      target: :name,
+      update: { value: Sequel[:excluded][:value] }
+    ).insert(
+      name: 'reconstruction_last_run',
+      value: Time.now.utc.iso8601
+    )
+  rescue => e
+    LOGGER.warn("TileReconstructor: failed to save last run timestamp: #{e.message}")
+  end
+
+  def get_last_run_timestamp(db)
+    timestamp_str = db[:metadata].where(name: 'reconstruction_last_run').get(:value)
+    return nil unless timestamp_str
+    
+    Time.parse(timestamp_str)
+  rescue => e
+    LOGGER.warn("TileReconstructor: failed to get last run timestamp: #{e.message}")
+    nil
+  end
+
   # Parses schedule time from config, returns {hour:, minute:} or nil
   def parse_schedule_time
     time_str = @route.dig(:gap_filling, :schedule, :time) || @route.dig(:gap_filling, :schedule, 'time')
@@ -110,35 +132,39 @@ class TileReconstructor
     return if start_zoom < minzoom
 
     downsample_opts = build_downsample_opts(@route)
-
-    LOGGER.info("TileReconstructor: starting gap filling for #{@source_name} from zoom #{start_zoom} to #{minzoom}")
+    
+    last_run_time = get_last_run_timestamp(db)
+    LOGGER.info("TileReconstructor: starting #{last_run_time ? "incremental (last run: #{last_run_time.iso8601})" : "full (first run)"} gap filling for #{@source_name} from zoom #{start_zoom} to #{minzoom}")
 
     start_zoom.downto(minzoom) do |z|
       break unless @running
 
       begin
-        process_zoom_level(z, db, downsample_opts, minzoom, maxzoom)
+        process_zoom_level(z, db, downsample_opts, minzoom, maxzoom, last_run_time)
       rescue => e
         LOGGER.error("TileReconstructor: failed to process zoom #{z} for #{@source_name}: #{e.message}")
         LOGGER.debug("TileReconstructor: backtrace: #{e.backtrace.join("\n")}")
       end
     end
 
+    save_last_run_timestamp(db)
+    
     LOGGER.info("TileReconstructor: gap filling completed for #{@source_name}")
   end
 
   otl_def :run_reconstruction
 
-  def process_zoom_level(z, db, downsample_opts, minzoom, maxzoom)
+  def process_zoom_level(z, db, downsample_opts, minzoom, maxzoom, last_run_time = nil)
     parent_z = z - 1
     return if parent_z < minzoom
 
     LOGGER.info("TileReconstructor: processing zoom #{z} -> #{parent_z}")
 
-    all_tiles_z = load_tiles_for_zoom(z, db)
+    all_tiles_z = load_tiles_for_zoom(z, db, last_run_time)
     return if all_tiles_z.empty?
 
-    LOGGER.info("TileReconstructor: loaded #{all_tiles_z.size} tiles for zoom #{z}")
+    log_msg = last_run_time ? "loaded #{all_tiles_z.size} tiles for zoom #{z} (filtered by timestamp)" : "loaded #{all_tiles_z.size} tiles for zoom #{z}"
+    LOGGER.info("TileReconstructor: #{log_msg}")
 
     parent_coords_set = calculate_parent_coords(all_tiles_z)
     LOGGER.info("TileReconstructor: calculated #{parent_coords_set.size} unique parents for zoom #{parent_z}")
@@ -182,11 +208,19 @@ class TileReconstructor
     generate_and_save_parent(px, py, parent_z, children_data_array, used_count, downsample_opts, db, grandparent_tile, parent_tile, parent_validation)
   end
 
-  # Loads all tiles for a zoom level (coordinates only, no blob)
-  def load_tiles_for_zoom(z, db)
-    db[:tiles].where(zoom_level: z)
-              .select(:tile_column, :tile_row, :generated)
-              .to_a
+  def load_tiles_for_zoom(z, db, last_run_time = nil)
+    query = db[:tiles].where(zoom_level: z)
+    
+    if last_run_time
+      last_run_utc = last_run_time.utc
+      conditions = [
+        Sequel[:updated_at] > last_run_utc,
+        Sequel[:generated] => -5
+      ]
+      query = query.where { Sequel.|(*conditions) }
+    end
+    
+    query.select(:tile_column, :tile_row, :generated).to_a
   end
 
   def calculate_parent_coords(all_tiles_z)
@@ -323,7 +357,8 @@ class TileReconstructor
         target: [:zoom_level, :tile_column, :tile_row],
         update: {
           tile_data: Sequel[:excluded][:tile_data],
-          generated: Sequel[:excluded][:generated]
+          generated: Sequel[:excluded][:generated],
+          updated_at: Sequel.lit("datetime('now', 'utc')")
         }
       ).insert(
         zoom_level: parent_z,
@@ -347,7 +382,7 @@ class TileReconstructor
       zoom_level: grandparent_tile[:zoom_level],
       tile_column: grandparent_tile[:tile_column],
       tile_row: grandparent_tile[:tile_row]
-    ).update(generated: -5)
+    ).update(generated: -5, updated_at: Sequel.lit("datetime('now', 'utc')"))
   end
 
   # Validates tile and returns its status

@@ -279,7 +279,10 @@ class BackgroundTileLoader
 
       @route[:db][:tiles].insert_conflict(
         target: [:zoom_level, :tile_column, :tile_row],
-        update: { tile_data: Sequel[:excluded][:tile_data] }
+        update: { 
+          tile_data: Sequel[:excluded][:tile_data],
+          updated_at: Sequel.lit("datetime('now', 'utc')")
+        }
       ).insert(
         zoom_level: z,
         tile_column: x,
