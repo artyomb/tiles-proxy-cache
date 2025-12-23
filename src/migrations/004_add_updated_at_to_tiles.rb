@@ -8,6 +8,17 @@ Sequel.migration do
       alter_table(:tiles) do
         add_column :updated_at, DateTime
       end
+
+      run <<-SQL
+        CREATE TRIGGER IF NOT EXISTS tiles_set_updated_at_on_insert
+        AFTER INSERT ON tiles
+        WHEN NEW.updated_at IS NULL
+        BEGIN
+          UPDATE tiles 
+          SET updated_at = datetime('now', 'utc')
+          WHERE rowid = NEW.rowid;
+        END;
+      SQL
     end
     
     begin
@@ -19,7 +30,9 @@ Sequel.migration do
 
   down do
     next unless table_exists?(:tiles)
-
+    
+    run "DROP TRIGGER IF EXISTS tiles_set_updated_at_on_insert"
+    
     raise Sequel::Error, 'Irreversible migration: dropping updated_at column would require table recreation'
   end
 end
