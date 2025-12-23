@@ -306,13 +306,13 @@ helpers do
       end
 
       route[:db][:tiles].insert_conflict(target: [:zoom_level, :tile_column, :tile_row],
-                                         update: { tile_data: Sequel[:excluded][:tile_data] })
+                                         update: {
+                                           tile_data: Sequel[:excluded][:tile_data],
+                                           updated_at: Sequel.lit("datetime('now', 'utc')")
+                                         })
                         .insert(zoom_level: z, tile_column: x, tile_row: tms,
-                                tile_data: Sequel.blob(result[:data]))
-
-#      if route.dig(:gap_filling, :enabled) && z >= route.dig(:gap_filling, :source_real_minzoom)
-#        route[:reconstructor]&.mark_parent_for_new_child(route[:db], z, x, tms, route[:minzoom])
-#      end
+                                tile_data: Sequel.blob(result[:data]),
+                                updated_at: Sequel.lit("datetime('now', 'utc')"))
 
       result[:data]
     end
