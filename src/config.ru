@@ -23,9 +23,19 @@ StackServiceBase.rack_setup self
 set :public_folder, "#{__dir__}/public"
 
 use Rack.middleware_klass do |env, app|
-  env['PATH_INFO'].gsub!(/^\/tiles-proxy/, '')
-  env['PATH_INFO'] = '/' if env['PATH_INFO'].empty?
-  env['SCRIPT_NAME'] = '/tiles-proxy'
+  env_path_prefix = ENV['PATH_PREFIX'].to_s
+  x_path_prefix = env['HTTP_X_FORWARDED_PATH_PREFIX'] || env['HTTP_X_FORWARDED_PREFIX'] || ''
+  full_prefix = env_path_prefix + x_path_prefix
+
+  if full_prefix == '' && env['PATH_INFO'].start_with?('/tiles-proxy')
+    full_prefix = '/tiles-proxy'
+  end
+  
+  if full_prefix != '' && env['PATH_INFO'].start_with?(full_prefix)
+    env['PATH_INFO'] = env['PATH_INFO'][full_prefix.length..-1] || '/'
+  end
+  
+  env['SCRIPT_NAME'] = full_prefix
   
   app.call env
 end
