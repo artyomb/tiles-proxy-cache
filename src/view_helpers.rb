@@ -87,6 +87,12 @@ module ViewHelpers
 
   def generate_single_source_style(route, source_name, debug_mode = false)
     base_url = request.base_url
+    script_name = request.script_name.to_s
+
+    if script_name != '' && !base_url.include?(script_name)
+      base_url = "#{base_url}#{script_name}"
+    end
+    
     encoding = route.dig(:metadata, :encoding)
     is_terrain = %w[terrarium mapbox].include?(encoding)
 
