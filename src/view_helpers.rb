@@ -91,8 +91,7 @@ module ViewHelpers
 
     bounds = route.dig(:metadata, :bounds).split(',')&.map(&:to_f)
 
-    tile_path = route[:path].gsub(':z', '{z}').gsub(':x', '{x}').gsub(':y', '{y}')
-    tile_url = url_for(tile_path)
+    tile_url = route[:path].gsub(':z', '{z}').gsub(':x', '{x}').gsub(':y', '{y}')
     tile_url += '?debug=true' if debug_mode
 
     style = {
