@@ -91,11 +91,8 @@ module ViewHelpers
 
     bounds = route.dig(:metadata, :bounds).split(',')&.map(&:to_f)
 
-    proto = request.env['HTTP_X_FORWARDED_SCHEME'] || request.env['HTTP_X_FORWARDED_PROTO'] || request.scheme
-    x_path_prefix = request.env['HTTP_X_FORWARDED_PATH_PREFIX'] || request.env['HTTP_X_FORWARDED_PREFIX'] || ''
-    base_host = request.host_with_port + x_path_prefix
     tile_path = route[:path].gsub(':z', '{z}').gsub(':x', '{x}').gsub(':y', '{y}')
-    tile_url = "#{proto}://#{base_host}#{tile_path}"
+    tile_url = url_for(tile_path)
     tile_url += '?debug=true' if debug_mode
 
     style = {

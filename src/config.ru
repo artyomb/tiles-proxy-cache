@@ -23,17 +23,19 @@ StackServiceBase.rack_setup self
 set :public_folder, "#{__dir__}/public"
 
 use Rack.middleware_klass do |env, app|
+  env_path_prefix = ENV['PATH_PREFIX'].to_s
   x_path_prefix = env['HTTP_X_FORWARDED_PATH_PREFIX'] || env['HTTP_X_FORWARDED_PREFIX'] || ''
-  
-  if x_path_prefix == '' && env['PATH_INFO'].start_with?('/tiles-proxy')
-    x_path_prefix = '/tiles-proxy'
+  full_prefix = env_path_prefix + x_path_prefix
+
+  if full_prefix == '' && env['PATH_INFO'].start_with?('/tiles-proxy')
+    full_prefix = '/tiles-proxy'
   end
   
-  if x_path_prefix != '' && env['PATH_INFO'].start_with?(x_path_prefix)
-    env['PATH_INFO'] = env['PATH_INFO'][x_path_prefix.length..-1] || '/'
+  if full_prefix != '' && env['PATH_INFO'].start_with?(full_prefix)
+    env['PATH_INFO'] = env['PATH_INFO'][full_prefix.length..-1] || '/'
   end
   
-  env['SCRIPT_NAME'] = x_path_prefix
+  env['SCRIPT_NAME'] = full_prefix
   
   app.call env
 end
@@ -136,11 +138,7 @@ end
 get "/map" do
   if params[:source]
     _, route = validate_and_get_route(params[:source])
-    proto = env['HTTP_X_FORWARDED_SCHEME'] || env['HTTP_X_FORWARDED_PROTO'] || request.scheme
-    x_path_prefix = env['HTTP_X_FORWARDED_PATH_PREFIX'] || env['HTTP_X_FORWARDED_PREFIX'] || ''
-    base_host = request.host_with_port + x_path_prefix
-    style_path = route[:path].gsub(/\/:[zxy]/, '')
-    style_url = "#{proto}://#{base_host}#{style_path}"
+    style_url = url_for(route[:path].gsub(/\/:[zxy]/, ''))
     style_url += "?debug=true" if params[:debug] == 'true'
     
     params[:style_url] = style_url
