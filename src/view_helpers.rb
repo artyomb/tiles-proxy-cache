@@ -86,12 +86,13 @@ module ViewHelpers
   end
 
   def generate_single_source_style(route, source_name, debug_mode = false)
+    base_url = request.base_url
     encoding = route.dig(:metadata, :encoding)
     is_terrain = %w[terrarium mapbox].include?(encoding)
 
     bounds = route.dig(:metadata, :bounds).split(',')&.map(&:to_f)
 
-    tile_url = route[:path].gsub(':z', '{z}').gsub(':x', '{x}').gsub(':y', '{y}')
+    tile_url = "#{base_url}#{route[:path].gsub(':z', '{z}').gsub(':x', '{x}').gsub(':y', '{y}')}"
     tile_url += '?debug=true' if debug_mode
 
     style = {
