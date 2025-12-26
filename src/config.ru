@@ -41,7 +41,7 @@ use Rack.middleware_klass do |env, app|
 end
 
 module ReconstructionCoordinator
-  def start_reconstruction
+  def start_reconstruction(mode = :incremental)
     source = @source_name
     route = @route
     loader = route[:autoscan_loader]
@@ -51,7 +51,7 @@ module ReconstructionCoordinator
       was_autoscan_running = loader.stop_completely || false
     end
 
-    success = super
+    success = super(mode)
 
     unless success
       loader.restart_scanning if was_autoscan_running && loader&.enabled?
@@ -177,7 +177,10 @@ post "/api/reconstructor/:source/start" do
   halt 404, { error: "Reconstructor not configured" }.to_json unless reconstructor
   halt 409, { error: "Already running" }.to_json if reconstructor.running?
   
-  if reconstructor.start_reconstruction
+  mode = (params[:mode]).to_sym
+  halt 400, { error: "Invalid mode. Must be 'incremental' or 'full'" }.to_json unless [:incremental, :full].include?(mode)
+  
+  if reconstructor.start_reconstruction(mode)
     { success: true }.to_json
   else
     halt 500, { error: "Failed to start" }.to_json

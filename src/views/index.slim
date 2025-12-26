@@ -37,6 +37,11 @@
         .source-actions
           a.btn.style-btn href=url_for(route[:path].gsub(/\/:[zxy]/, '')) 📋 JSON Style
           - if route.dig(:gap_filling, :enabled)
+            .mode-selector-wrapper
+              span.mode-selector-icon ▼
+              select.mode-selector id="mode-select-#{name}"
+                option value="incremental" Incremental
+                option value="full" Full Rebuild
             a.btn.reconstruct-btn href="#" onclick="startReconstructor('#{name}', event)" id="reconstruct-btn-#{name}" ⚙️ Reconstruct
           a.btn.map-btn href=url_for("/map?source=#{name}") 🌍 Map preview
           a.btn.debug-btn href=url_for("/map?source=#{name}&debug=true") Debug Map
@@ -81,19 +86,26 @@
 javascript:
   const BASE_PATH = '#{base_path}';
   
-  const setBtn = (btn, running) => {
-    btn.disabled = running;
-    btn.textContent = running ? '⏳ Running...' : '⚙️ Reconstruct';
+  const setReconstructControls = (src, running) => {
+    const btn = document.getElementById(`reconstruct-btn-${src}`);
+    const selector = document.getElementById(`mode-select-${src}`);
+    if (btn) {
+      btn.disabled = running;
+      btn.textContent = running ? '⏳ Running...' : '⚙️ Reconstruct';
+    }
+    if (selector) {
+      selector.disabled = running;
+    }
   };
   
-  const pollStatus = (src, btn, onComplete) => {
+  const pollStatus = (src, onComplete) => {
     const iv = setInterval(() => 
       fetch(`${BASE_PATH}/api/reconstructor/${src}/status`)
         .then(r => r.json())
         .then(d => {
           if (!d.running) {
             clearInterval(iv);
-            setBtn(btn, false);
+            setReconstructControls(src, false);
             if (onComplete) onComplete();
           }
         })
@@ -104,20 +116,24 @@ javascript:
   
   function startReconstructor(src, e) {
     e.preventDefault();
-    const btn = document.getElementById(`reconstruct-btn-${src}`);
-    showModal('Confirm Action', `Start tile reconstruction for ${src}?`, () => {
-      setBtn(btn, true);
-      fetch(`${BASE_PATH}/api/reconstructor/${src}/start`, { method: 'POST' })
+    const modeSelect = document.getElementById(`mode-select-${src}`);
+    const mode = modeSelect ? modeSelect.value : 'incremental';
+    const modeLabel = mode === 'full' ? 'Full Rebuild' : 'Incremental';
+    showModal('Confirm Action', `Start ${modeLabel.toLowerCase()} tile reconstruction for ${src}?`, () => {
+      setReconstructControls(src, true);
+      fetch(`${BASE_PATH}/api/reconstructor/${src}/start?mode=${mode}`, { 
+        method: 'POST'
+      })
         .then(r => r.json())
         .then(data => {
           if (data.success) {
-            pollStatus(src, btn, () => showToast(`Reconstruction completed for ${src}`));
+            pollStatus(src, () => showToast(`Reconstruction completed for ${src}`));
           } else {
             showToast(data.error || 'Unknown error', true);
-            setBtn(btn, false);
+            setReconstructControls(src, false);
           }
         })
-        .catch(err => { showToast(err.message, true); setBtn(btn, false); });
+        .catch(err => { showToast(err.message, true); setReconstructControls(src, false); });
     });
   }
   
@@ -149,7 +165,7 @@ javascript:
             const src = btn.id.replace('reconstruct-btn-', '');
             fetch(`${BASE_PATH}/api/reconstructor/${src}/status`)
               .then(r => r.json())
-              .then(d => { if (d.running) { setBtn(btn, true); pollStatus(src, btn); } })
+              .then(d => { if (d.running) { setReconstructControls(src, true); pollStatus(src); } })
               .catch(() => {});
           });
         })

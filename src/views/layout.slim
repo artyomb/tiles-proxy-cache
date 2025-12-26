@@ -257,13 +257,73 @@ html
       |   background: #7aa8cc; 
       |   border-color: #8bb9dd; 
       | }
+      | .mode-selector-wrapper {
+      |   display: inline-flex;
+      |   align-items: center;
+      |   position: relative;
+      |   margin-right: 0;
+      | }
+      | .mode-selector-icon {
+      |   position: absolute;
+      |   left: 6px;
+      |   color: #ffffff;
+      |   font-size: 10px;
+      |   pointer-events: none;
+      |   z-index: 1;
+      | }
+      | .mode-selector {
+      |   background: #8b4513;
+      |   color: #ffffff;
+      |   border: 1px solid #9c6b3a;
+      |   border-right: none;
+      |   border-radius: 3px 0 0 3px;
+      |   padding: 4px 8px 4px 20px;
+      |   font-size: 11px;
+      |   line-height: 1.4;
+      |   height: 26px;
+      |   box-sizing: border-box;
+      |   cursor: pointer;
+      |   outline: none;
+      |   -webkit-appearance: none;
+      |   -moz-appearance: none;
+      |   appearance: none;
+      |   font-family: inherit;
+      |   vertical-align: top;
+      | }
+      | .mode-selector:hover {
+      |   background-color: #a0522d;
+      |   border-color: #b5651d;
+      |   border-right: none;
+      | }
+      | .mode-selector:focus {
+      |   background-color: #a0522d;
+      |   border-color: #b5651d;
+      |   border-right: none;
+      | }
+      | .mode-selector option {
+      |   background: #3c3f41;
+      |   color: #a9b7c6;
+      | }
+      | .mode-selector:disabled {
+      |   background: #808080;
+      |   color: #555555;
+      |   cursor: not-allowed;
+      |   opacity: 0.5;
+      |   border-color: #808080;
+      | }
       | .reconstruct-btn {
       |   background: #c75450;
       |   color: #ffffff;
       |   border-color: #d76460;
       |   font-size: 11px;
+      |   line-height: 1.4;
+      |   height: 26px;
+      |   box-sizing: border-box;
       |   padding: 4px 8px;
-      |   margin-right: 8px;
+      |   margin-left: 0;
+      |   border-radius: 0 3px 3px 0;
+      |   border-left: none;
+      |   vertical-align: top;
       | }
       | .reconstruct-btn:hover {
       |   background: #d76460;

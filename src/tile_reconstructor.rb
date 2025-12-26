@@ -45,9 +45,10 @@ class TileReconstructor
     LOGGER.info("TileReconstructor: scheduler stopped for #{@source_name}")
   end
 
-  def start_reconstruction
+  def start_reconstruction(mode)
     return false if running?
 
+    @reconstruction_mode = mode
     @running = true
     @reconstruction_thread = Thread.new do
       begin
@@ -133,8 +134,9 @@ class TileReconstructor
 
     downsample_opts = build_downsample_opts(@route)
 
-    last_run_time = get_last_run_timestamp(db)
-    LOGGER.info("TileReconstructor: starting #{last_run_time ? "incremental (last run: #{last_run_time.iso8601})" : "full (first run)"} gap filling for #{@source_name} from zoom #{start_zoom} to #{minzoom}")
+    last_run_time = @reconstruction_mode == :full ? nil : get_last_run_timestamp(db)
+    mode_name = @reconstruction_mode == :full ? "full rebuild" : (last_run_time ? "incremental (last run: #{last_run_time.iso8601})" : "full")
+    LOGGER.info("TileReconstructor: starting #{mode_name} gap filling for #{@source_name} from zoom #{start_zoom} to #{minzoom}")
 
     start_zoom.downto(minzoom) do |z|
       break unless @running
