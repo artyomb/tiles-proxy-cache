@@ -171,16 +171,23 @@ class TileReconstructor
 
     processed_count = 0
     generated_count = 0
+    invalid_tiles_coords = []
 
     parent_coords_set.each do |parent_coords|
       break unless @running
 
       begin
-        generated_count += 1 if process_parent(parent_coords, z, parent_z, db, downsample_opts, minzoom)
+        generated, invalid_coords = process_parent(parent_coords, z, parent_z, db, downsample_opts, minzoom)
+        generated_count += 1 if generated
+        invalid_tiles_coords.concat(invalid_coords) if invalid_coords.any?
         processed_count += 1
       rescue => e
         LOGGER.warn("TileReconstructor: failed to process parent #{parent_z}/#{parent_coords[0]}/#{parent_coords[1]}: #{e.message}")
       end
+    end
+
+    if invalid_tiles_coords.any?
+      cleanup_invalid_tiles(invalid_tiles_coords, db)
     end
 
     LOGGER.info("TileReconstructor: zoom #{z} -> #{parent_z} completed: processed #{processed_count}, generated #{generated_count}")
@@ -189,7 +196,7 @@ class TileReconstructor
   otl_def :process_zoom_level
 
   # Processes single parent tile: loads parent + children, validates, decides, generates
-  # Returns: true if tile was generated/updated, false otherwise
+  # Returns: [generated, invalid_tiles_coords] where generated is true/false and invalid_tiles_coords is array of invalid child tiles
   def process_parent(parent_coords, z, parent_z, db, downsample_opts, minzoom)
     px, py = parent_coords
     child_coords = calculate_child_coords(px, py)
@@ -201,11 +208,12 @@ class TileReconstructor
     parent_valid = [:valid, :partial_transparent].include?(parent_validation)
     parent_partial_transparency = parent_validation == :partial_transparent
 
-    children_data_array, used_count = validate_children_tiles(children_tiles, child_coords)
+    children_data_array, used_count, invalid_tiles_coords = validate_children_tiles(children_tiles, child_coords)
 
-    return false unless should_generate_parent?(parent_tile, parent_valid, used_count, parent_partial_transparency)
+    return [false, invalid_tiles_coords] unless should_generate_parent?(parent_tile, parent_valid, used_count, parent_partial_transparency)
 
-    generate_and_save_parent(px, py, parent_z, children_data_array, used_count, downsample_opts, db, grandparent_tile, parent_tile, parent_validation)
+    generated = generate_and_save_parent(px, py, parent_z, children_data_array, used_count, downsample_opts, db, grandparent_tile, parent_tile, parent_validation)
+    [generated, invalid_tiles_coords]
   end
 
   def load_tiles_for_zoom(z, db, last_run_time = nil)
@@ -303,6 +311,7 @@ class TileReconstructor
   def validate_children_tiles(children_tiles, child_coords)
     children_data_array = [nil, nil, nil, nil]
     used_count = 0
+    invalid_tiles_coords = []
 
     children_tiles.each do |tile|
       coord_key = [tile[:tile_column], tile[:tile_row]]
@@ -314,10 +323,12 @@ class TileReconstructor
       if [:valid, :partial_transparent].include?(validation)
         children_data_array[idx] = tile[:tile_data]
         used_count += 1
+      elsif [:transparent, :corrupted].include?(validation)
+        invalid_tiles_coords << [tile[:zoom_level], tile[:tile_column], tile[:tile_row], validation]
       end
     end
 
-    [children_data_array, used_count]
+    [children_data_array, used_count, invalid_tiles_coords]
   end
 
   def should_generate_parent?(parent_tile, parent_valid, used_count, parent_partial_transparency = false)
@@ -384,6 +395,52 @@ class TileReconstructor
       tile_column: grandparent_tile[:tile_column],
       tile_row: grandparent_tile[:tile_row]
     ).update(generated: -5, updated_at: Sequel.lit("datetime('now', 'utc')"))
+  end
+
+  def cleanup_invalid_tiles(invalid_tiles_coords, db)
+    return if invalid_tiles_coords.empty?
+
+    processed_count = 0
+    error_count = 0
+
+    invalid_tiles_coords.each do |z, x, y, validation_status|
+      begin
+        db.transaction do
+          db[:tiles].where(
+            zoom_level: z,
+            tile_column: x,
+            tile_row: y
+          ).delete
+
+          # Create record in misses
+          reason = validation_status.to_s
+          db[:misses].insert_conflict(
+            target: [:zoom_level, :tile_column, :tile_row],
+            update: {
+              ts: Sequel[:excluded][:ts],
+              reason: Sequel[:excluded][:reason],
+              details: Sequel[:excluded][:details],
+              status: Sequel[:excluded][:status]
+            }
+          ).insert(
+            zoom_level: z,
+            tile_column: x,
+            tile_row: y,
+            ts: Time.now.to_i,
+            reason: reason,
+            details: "Tile is #{validation_status}",
+            status: 200,
+            response_body: nil
+          )
+        end
+        processed_count += 1
+      rescue => e
+        error_count += 1
+        LOGGER.warn("TileReconstructor: failed to cleanup invalid tile #{z}/#{x}/#{y}: #{e.message}")
+      end
+    end
+
+    LOGGER.info("TileReconstructor: cleaned up #{processed_count} invalid tiles#{error_count > 0 ? " (#{error_count} errors)" : ''}")
   end
 
   # Validates tile and returns its status

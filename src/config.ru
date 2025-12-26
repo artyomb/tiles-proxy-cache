@@ -339,14 +339,21 @@ helpers do
       tile_column: x,
       tile_row: tile_row,
       ts: 0..cutoff_time
-    ).delete
+    ).where { Sequel.~(:status => 200) }.delete
 
     miss = route[:db][:misses].where(
       zoom_level: z,
       tile_column: x,
       tile_row: tile_row
     ).first
-    miss&.[](:status)
+
+    return nil unless miss
+
+    if miss[:status] == 200 && ['transparent', 'corrupted'].include?(miss[:reason])
+      return 200
+    end
+
+    miss[:status]
   end
 
   def fetch_http(route:, x:, y:, z:)
