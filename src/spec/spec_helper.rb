@@ -8,7 +8,7 @@ ENV['RACK_ENV'] = 'test'
 ENV['QUIET'] = 'true'
 
 module AutoscanDisabler
-  def start_scanning; end
+  def start; end
   def start_wal_checkpoint_thread; end
 end
 

@@ -1,6 +1,7 @@
 require 'vips'
 require 'zlib'
 require 'stringio'
+require 'concurrent-ruby'
 require_relative 'ext/terrain_downsample_extension'
 
 class BackgroundTileLoader
@@ -8,25 +9,26 @@ class BackgroundTileLoader
     @route = route
     @source_name = source_name
     @config = route[:autoscan] || {}
-    @running = false
     @tiles_today = 0
     @tiles_processed = 0
     @current_progress = {}
-    @wal_checkpoint_thread = nil
+    @cancel_token = nil
+    @scan_future = nil
+    @wal_task = nil
 
     setup_progress_table
     load_todays_progress
   end
 
-  def start_scanning
+  def start
     return unless @config[:enabled]
-    return if @running
+    return if running?
 
-    @running = true
     LOGGER.info("Starting autoscan for #{@source_name}")
     initialize_zoom_progress
 
-    @scan_thread = Thread.new do
+    @cancel_token = Concurrent::Promises.resolvable_event
+    @scan_future = Concurrent::Promises.future_on(:io, @cancel_token) do |token|
       begin
         start_zoom = @route[:minzoom] || 1
         end_zoom = @config[:max_scan_zoom] || 20
@@ -34,23 +36,22 @@ class BackgroundTileLoader
         source_real_minzoom = @route.dig(:gap_filling, :source_real_minzoom)
         start_zoom = [start_zoom, source_real_minzoom].compact.max if source_real_minzoom
 
-        (start_zoom..end_zoom).each { |z| scan_zoom_level(z) }
+        (start_zoom..end_zoom).each { |z| scan_zoom_level(z, token) }
       rescue => e
         LOGGER.error("Autoscan error for #{@source_name}: #{e}")
         update_all_statuses('error')
       ensure
-        @running = false
         update_active_status('stopped') unless e
       end
     end
   end
 
-  def stop_scanning
-    return unless @running
+  def stop
+    return unless running?
 
-    @running = false
     update_active_status('stopped')
-    @scan_thread&.join(5)
+    @cancel_token&.resolve
+    @scan_future&.wait(5)
     LOGGER.info("Stopped autoscan for #{@source_name}")
   end
 
@@ -58,62 +59,64 @@ class BackgroundTileLoader
     @config[:enabled] == true
   end
 
+  def running?
+    @scan_future&.pending? == true
+  end
+
   def stop_completely
     return false unless enabled?
     
-    has_scan_thread = @running && @scan_thread&.alive?
-    has_wal_thread = @wal_checkpoint_thread&.alive?
-    return false unless has_scan_thread || has_wal_thread
+    has_scan = running?
+    has_wal = @wal_task&.running?
+    return false unless has_scan || has_wal
 
     LOGGER.info("Stopping autoscan completely for #{@source_name} (including WAL checkpoint)")
 
-    if has_scan_thread
-      @running = false
+    if has_scan
       update_active_status('stopped')
-      @scan_thread&.join(5)
-      @scan_thread = nil
+      @cancel_token&.resolve
+      @scan_future&.wait(5)
+      @scan_future = nil
     end
 
-    if has_wal_thread
-      @wal_checkpoint_thread.kill
-      @wal_checkpoint_thread.join(2)
-      @wal_checkpoint_thread = nil
+    if has_wal
+      @wal_task.shutdown
+      @wal_task.wait_for_termination(2)
+      @wal_task = nil
     end
 
     LOGGER.info("Autoscan completely stopped for #{@source_name}")
     true
   end
 
-  def restart_scanning
+  def restart
     return false unless enabled?
     
-    if @running
-      start_wal_checkpoint_thread unless @wal_checkpoint_thread&.alive?
+    if running?
+      start_wal_checkpoint_thread unless @wal_task&.running?
       return true
     end
 
     LOGGER.info("Restarting autoscan for #{@source_name}")
-    start_scanning
-    start_wal_checkpoint_thread unless @wal_checkpoint_thread&.alive?
+    start
+    start_wal_checkpoint_thread unless @wal_task&.running?
     true
   end
 
   def start_wal_checkpoint_thread
-    return if @wal_checkpoint_thread&.alive?
+    return if @wal_task&.running?
 
-    @wal_checkpoint_thread = Thread.new do
-      loop do
-        sleep 15
-        begin
-          result = @route[:db].run "PRAGMA wal_checkpoint(PASSIVE)"
-          if result&.is_a?(Array) && result[0] == 1
-            @route[:db].run "PRAGMA wal_checkpoint(RESTART)"
-          end
-        rescue => e
-          LOGGER.warn("WAL checkpoint error: #{e}")
+    @wal_task = Concurrent::TimerTask.new(execution_interval: 15) do
+      begin
+        result = @route[:db].run "PRAGMA wal_checkpoint(PASSIVE)"
+        if result&.is_a?(Array) && result[0] == 1
+          @route[:db].run "PRAGMA wal_checkpoint(RESTART)"
         end
+      rescue => e
+        LOGGER.warn("WAL checkpoint error: #{e}")
       end
     end
+    @wal_task.execute
   end
 
   private
@@ -131,7 +134,7 @@ class BackgroundTileLoader
     end
   end
 
-  def scan_zoom_level(z)
+  def scan_zoom_level(z, token)
     otl_span("scan_zoom_level", {source: @source_name, zoom: z}) do
       if zoom_complete?(z)
         LOGGER.info("Zoom #{z} already complete for #{@source_name}")
@@ -145,7 +148,7 @@ class BackgroundTileLoader
       @current_progress[z] = load_progress(z)
       update_status(z, 'active')
 
-      scan_zoom_grid(z, bounds)
+      scan_zoom_grid(z, bounds, token)
 
       final_x = @current_progress[z]&.dig(:x) || 0
       final_y = @current_progress[z]&.dig(:y) || 0
@@ -159,13 +162,13 @@ class BackgroundTileLoader
         actual_tiles = @route[:db][:tiles].where(zoom_level: z).count
         errors = @route[:db][:misses].where(zoom_level: z).count
         remaining = expected - actual_tiles - errors
-        LOGGER.error("Zoom #{z} grid scan finished but incomplete for #{@source_name}: actual=#{actual_tiles}, expected=#{expected}, errors=#{errors}, remaining=#{remaining}, running=#{@running}")
+        LOGGER.error("Zoom #{z} grid scan finished but incomplete for #{@source_name}: actual=#{actual_tiles}, expected=#{expected}, errors=#{errors}, remaining=#{remaining}, running=#{running?}")
         update_status(z, 'error')
       end
     end
   end
 
-  def scan_zoom_grid(z, bounds)
+  def scan_zoom_grid(z, bounds, token)
     _, min_y, max_x, max_y = bounds
     x, y = @current_progress[z].values_at(:x, :y)
 
@@ -173,7 +176,7 @@ class BackgroundTileLoader
       start_y = curr_x == x ? y : min_y
 
       (start_y..max_y).each do |curr_y|
-        return unless @running
+        return if token.resolved?
 
         @current_progress[z][:x] = curr_x
         @current_progress[z][:y] = curr_y

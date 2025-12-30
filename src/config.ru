@@ -54,7 +54,7 @@ module ReconstructionCoordinator
     success = super(mode)
 
     unless success
-      loader.restart_scanning if was_autoscan_running && loader&.enabled?
+      loader.restart if was_autoscan_running && loader&.enabled?
       return false
     end
 
@@ -65,7 +65,7 @@ module ReconstructionCoordinator
           break unless running?
         end
 
-        loader.restart_scanning if was_autoscan_running && loader&.enabled?
+        loader.restart if was_autoscan_running && loader&.enabled?
       rescue => e
         LOGGER.error("ReconstructionCoordinator: error resuming autoscan for #{source}: #{e.message}")
       end
@@ -213,7 +213,7 @@ configure do
     if route.dig(:autoscan, :enabled)
       loader = BackgroundTileLoader.new(route, _name.to_s)
       route[:autoscan_loader] = loader
-      loader.start_scanning
+      loader.start
       loader.start_wal_checkpoint_thread
     end
 

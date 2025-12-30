@@ -517,6 +517,7 @@ DEPENDENCIES
   async
   async-rspec
   autoforme
+  concurrent-ruby
   falcon
   faraday
   faraday-net_http_persistent
