@@ -5,6 +5,14 @@ require 'concurrent-ruby'
 require_relative 'ext/terrain_downsample_extension'
 
 class BackgroundTileLoader
+  MAX_RETRY_ATTEMPTS = 15
+  RETRY_JITTER = 0.2  # ±20%
+  RETRY_BACKOFF_FACTOR = 2.5
+
+  TRANSIENT_STATUS_CODES = [429, 500, 502, 503, 504].freeze
+  CRITICAL_STATUS_CODES = [401, 403].freeze
+  PERMANENT_STATUS_CODES = [204, 400, 404].freeze
+
   def initialize(route, source_name)
     @route = route
     @source_name = source_name
@@ -181,14 +189,26 @@ class BackgroundTileLoader
         @current_progress[z][:x] = curr_x
         @current_progress[z][:y] = curr_y
 
-        success = fetch_tile(curr_x, curr_y, z)
-        if success
-          @tiles_today += 1
-          sleep calculate_delay
-        end
+        result = fetch_tile(curr_x, curr_y, z, token)
 
-        @tiles_processed += 1
-        save_progress(curr_x, curr_y, z) if @tiles_processed % 10 == 0
+        case result
+        when :success
+          @tiles_today += 1
+          @tiles_processed += 1
+          save_progress(curr_x, curr_y, z) if @tiles_processed % 10 == 0
+          sleep calculate_delay
+
+        when :permanent_error
+          @tiles_processed += 1
+          save_progress(curr_x, curr_y, z) if @tiles_processed % 10 == 0
+
+        when :source_unavailable, :critical_stop
+          LOGGER.error("Stopping scan for #{@source_name} at tile #{z}/#{curr_x}/#{curr_y}")
+          return
+
+        when :cancelled
+          return
+        end
       end
     end
 
@@ -199,111 +219,52 @@ class BackgroundTileLoader
     LOGGER.info("Completed zoom level #{z} for #{@source_name}")
   end
 
-  def fetch_tile(x, y, z)
-    target_url = @route[:target].gsub('{z}', z.to_s).gsub('{x}', x.to_s).gsub('{y}', y.to_s)
-    target_url += "?#{URI.encode_www_form(@route[:query_params])}" if @route[:query_params]
-    headers = get_headers
+  def fetch_tile(x, y, z, token = nil)
+    return :permanent_error if tile_exists?(x, y, z)
 
-    return false if tile_exists?(x, y, z)
+    attempts = 0
 
-    begin
-      response = @route[:client].get(target_url, nil, headers)
-      
-      unless response.success?
-        DatabaseManager.record_miss(@route, z, x, y, 'http_error', "HTTP #{response.status}", response.status, response.body)
-        return false
+    while attempts < MAX_RETRY_ATTEMPTS
+      attempts += 1
+      return :cancelled if token&.resolved?
+
+      result = perform_tile_fetch(x, y, z)
+
+      if result[:success]
+        save_tile_to_db(z, x, y, result[:data])
+        return :success
       end
 
-      data = response.body
-      
-      if response.headers['content-encoding']&.include?('gzip')
-        data = Zlib::GzipReader.new(StringIO.new(data)).read rescue data
-      end
-      
-      if @route[:source_format] == 'lerc'
-        if response.headers['content-type']&.include?('text/html')
-          DatabaseManager.record_miss(@route, z, x, y, 'arcgis_html_error', 'ArcGIS returned HTML error page', 404, data)
-          return false
-        end
-        
-        begin
-          decoded = LercFFI.lerc_to_mapbox_png(data)
-          if decoded.nil?
-            DatabaseManager.record_miss(@route, z, x, y, 'arcgis_nodata', 'LERC tile has no valid pixels (empty tile)', 404, data)
-            LOGGER.debug("Skipping empty LERC tile #{z}/#{x}/#{y} (no valid pixels)")
-            return false
-          end
-          data = decoded
-        rescue => e
-          DatabaseManager.record_miss(@route, z, x, y, 'lerc_decode_error', "LERC decode error: #{e.message}", 500, data)
-          LOGGER.warn("LERC decode error for #{z}/#{x}/#{y}: #{e}")
-          return false
-        end
-      else
-        content_type = response.headers['content-type']
-        unless content_type&.include?('image/')
-          DatabaseManager.record_miss(@route, z, x, y, 'invalid_content_type', "Content-Type: #{content_type}", 200, data)
-          LOGGER.warn("Invalid content-type for #{z}/#{x}/#{y}: #{content_type}")
-          return false
-        end
-      end
+      error_class = classify_error(result[:status], result[:reason])
 
-      if @route[:downsample_config]&.dig(:enabled) && data && !data.empty?
-        begin
-          encoding = @route[:metadata][:encoding]
-          target_size = @route[:downsample_config][:target_size]
-          method = @route[:downsample_config][:method]
-          source_format = @route[:metadata][:format]
-          output_format = @route[:metadata][:format]
-          
-          if source_format == 'webp'
-            img = Vips::Image.new_from_buffer(data, '')
-            data = img.write_to_buffer('.png')
-          end
-          
-          data = TerrainDownsampleFFI.downsample_png(data, target_size, encoding, method)
-          
-          if output_format == 'webp'
-            data = convert_to_webp(data)
-          end
-        rescue => e
-          DatabaseManager.record_miss(@route, z, x, y, 'image_processing_error', "Image processing error: #{e.message}", 500, data)
-          LOGGER.warn("Image processing error for #{z}/#{x}/#{y}: #{e}")
-          return false
+      case error_class
+      when :critical
+        handle_critical_error(result)
+        return :critical_stop
+
+      when :permanent
+        record_permanent_miss(x, y, z, result)
+        return :permanent_error
+
+      when :transient
+        if attempts >= MAX_RETRY_ATTEMPTS
+          handle_source_unavailable(x, y, z, attempts)
+          return :source_unavailable
         end
-      elsif @route[:webp_config] && @route[:source_format] == 'png'
-        begin
-          data = convert_to_webp(data)
-        rescue => e
-          DatabaseManager.record_miss(@route, z, x, y, 'webp_conversion_error', "WebP conversion error: #{e.message}", 500, data)
-          return false
+
+        delay = calculate_retry_delay(attempts + 1)
+
+        if result[:status] == 429
+          LOGGER.warn("Rate limit (429) hit for #{@source_name} at tile #{z}/#{x}/#{y}, retry #{attempts + 1}/#{MAX_RETRY_ATTEMPTS} after #{delay.round(1)}s - consider adjusting daily_limit in config")
+        else
+          LOGGER.warn("Tile #{z}/#{x}/#{y} failed: #{result[:reason]}, retry #{attempts + 1}/#{MAX_RETRY_ATTEMPTS} after #{delay.round(1)}s")
         end
+
+        sleep(delay)
       end
-
-      @route[:db][:tiles].insert_conflict(
-        target: [:zoom_level, :tile_column, :tile_row],
-        update: {
-          tile_data: Sequel[:excluded][:tile_data],
-          updated_at: Sequel.lit("datetime('now', 'utc')")
-        }
-      ).insert(
-        zoom_level: z,
-        tile_column: x,
-        tile_row: tms_y(z, y),
-        tile_data: Sequel.blob(data),
-        updated_at: Sequel.lit("datetime('now', 'utc')")
-      )
-
-      if @route.dig(:gap_filling, :enabled)
-        @route[:reconstructor]&.mark_parent_for_new_child(@route[:db], z, x, tms_y(z, y), @route[:minzoom])
-      end
-
-      true
-    rescue => e
-      DatabaseManager.record_miss(@route, z, x, y, 'fetch_error', "Background fetch error: #{e.message}", 500, nil)
-      LOGGER.warn("Background fetch error for #{z}/#{x}/#{y}: #{e}")
-      false
     end
+
+    :source_unavailable
   end
 
   def get_headers
@@ -407,7 +368,9 @@ class BackgroundTileLoader
   end
 
   def update_all_statuses(status)
-    @route[:db][:tile_scan_progress].where(source: @source_name).update(status: status)
+    @route[:db][:tile_scan_progress]
+      .where(source: @source_name, status: 'active')
+      .update(status: status)
   rescue => e
     LOGGER.warn("Failed to update all statuses: #{e}")
   end
@@ -428,9 +391,9 @@ class BackgroundTileLoader
     (start_zoom..end_zoom).each do |z|
       existing = @route[:db][:tile_scan_progress].where(source: @source_name, zoom_level: z).first
       
-      if existing && existing[:status] == 'error'
+      if existing && ['error', 'critical_error', 'source_unavailable'].include?(existing[:status])
         reset_zoom_progress(z)
-        LOGGER.info("Reset error status for zoom #{z} of #{@source_name} on startup")
+        LOGGER.info("Reset #{existing[:status]} status for zoom #{z} of #{@source_name} on startup")
       else
         @route[:db][:tile_scan_progress].insert_conflict(
           target: [:source, :zoom_level]
@@ -488,5 +451,190 @@ class BackgroundTileLoader
     LOGGER.info("Reset progress for zoom #{z} of #{@source_name}")
   rescue => e
     LOGGER.warn("Failed to reset progress for zoom #{z}: #{e}")
+  end
+
+  def perform_tile_fetch(x, y, z)
+    target_url = @route[:target].gsub('{z}', z.to_s).gsub('{x}', x.to_s).gsub('{y}', y.to_s)
+    target_url += "?#{URI.encode_www_form(@route[:query_params])}" if @route[:query_params]
+    headers = get_headers
+
+    begin
+      response = @route[:client].get(target_url, nil, headers)
+
+      if response.status == 204
+        return {
+          success: false,
+          status: 204,
+          reason: 'http_204',
+          details: 'HTTP 204 No Content (tile does not exist)',
+          body: nil
+        }
+      end
+
+      unless response.success?
+        return {
+          success: false,
+          status: response.status,
+          reason: 'http_error',
+          details: "HTTP #{response.status}",
+          body: response.body
+        }
+      end
+
+      data = response.body
+
+      if response.headers['content-encoding']&.include?('gzip')
+        data = Zlib::GzipReader.new(StringIO.new(data)).read rescue data
+      end
+
+      if @route[:source_format] == 'lerc'
+        if response.headers['content-type']&.include?('text/html')
+          return {
+            success: false,
+            status: 404,
+            reason: 'arcgis_html_error',
+            details: 'ArcGIS returned HTML error page',
+            body: data
+          }
+        end
+
+        begin
+          decoded = LercFFI.lerc_to_mapbox_png(data)
+          if decoded.nil?
+            return {
+              success: false,
+              status: 404,
+              reason: 'arcgis_nodata',
+              details: 'LERC tile has no valid pixels (empty tile)',
+              body: data
+            }
+          end
+          data = decoded
+        rescue => e
+          return {
+            success: false,
+            status: 500,
+            reason: 'lerc_decode_error',
+            details: "LERC decode error: #{e.message}",
+            body: data
+          }
+        end
+      else
+        content_type = response.headers['content-type']
+        unless content_type&.include?('image/')
+          return {
+            success: false,
+            status: 200,
+            reason: 'invalid_content_type',
+            details: "Content-Type: #{content_type}",
+            body: data
+          }
+        end
+      end
+
+      if @route[:downsample_config]&.dig(:enabled) && data && !data.empty?
+        begin
+          encoding = @route[:metadata][:encoding]
+          target_size = @route[:downsample_config][:target_size]
+          method = @route[:downsample_config][:method]
+          source_format = @route[:metadata][:format]
+          output_format = @route[:metadata][:format]
+
+          if source_format == 'webp'
+            img = Vips::Image.new_from_buffer(data, '')
+            data = img.write_to_buffer('.png')
+          end
+
+          data = TerrainDownsampleFFI.downsample_png(data, target_size, encoding, method)
+
+          if output_format == 'webp'
+            data = convert_to_webp(data)
+          end
+        rescue => e
+          return {
+            success: false,
+            status: 500,
+            reason: 'image_processing_error',
+            details: "Image processing error: #{e.message}",
+            body: data
+          }
+        end
+      elsif @route[:webp_config] && @route[:source_format] == 'png'
+        begin
+          data = convert_to_webp(data)
+        rescue => e
+          return {
+            success: false,
+            status: 500,
+            reason: 'webp_conversion_error',
+            details: "WebP conversion error: #{e.message}",
+            body: data
+          }
+        end
+      end
+
+      { success: true, data: data }
+    rescue => e
+      {
+        success: false,
+        status: 500,
+        reason: 'fetch_error',
+        details: "Background fetch error: #{e.message}",
+        body: nil
+      }
+    end
+  end
+
+  def save_tile_to_db(z, x, y, data)
+    @route[:db][:tiles].insert_conflict(
+      target: [:zoom_level, :tile_column, :tile_row],
+      update: {
+        tile_data: Sequel[:excluded][:tile_data],
+        updated_at: Sequel.lit("datetime('now', 'utc')")
+      }
+    ).insert(
+      zoom_level: z,
+      tile_column: x,
+      tile_row: tms_y(z, y),
+      tile_data: Sequel.blob(data),
+      updated_at: Sequel.lit("datetime('now', 'utc')")
+    )
+
+    if @route.dig(:gap_filling, :enabled)
+      @route[:reconstructor]&.mark_parent_for_new_child(@route[:db], z, x, tms_y(z, y), @route[:minzoom])
+    end
+  end
+
+  def record_permanent_miss(x, y, z, result)
+    reason = "permanent:#{result[:reason]}"
+    DatabaseManager.record_miss(@route, z, x, y, reason, result[:details], result[:status], result[:body])
+  end
+
+  def handle_critical_error(result)
+    LOGGER.error("Critical error #{result[:status]} for #{@source_name}: #{result[:details]} - check credentials/access")
+    update_all_statuses('critical_error')
+  end
+
+  def handle_source_unavailable(x, y, z, attempts)
+    LOGGER.error("Source unavailable after #{attempts} retry attempts for tile #{z}/#{x}/#{y} of #{@source_name}")
+    update_all_statuses('source_unavailable')
+  end
+
+  def classify_error(status, reason)
+    return :critical if CRITICAL_STATUS_CODES.include?(status)
+    return :permanent if PERMANENT_STATUS_CODES.include?(status)
+    return :permanent if reason&.start_with?('permanent:')
+    return :transient if TRANSIENT_STATUS_CODES.include?(status)
+    return :transient if reason&.include?('network') || reason&.include?('timeout') || reason&.include?('refused')
+
+    :permanent
+  end
+
+  def calculate_retry_delay(attempt)
+    return 0 if attempt == 1
+    
+    base = [RETRY_BACKOFF_FACTOR ** (attempt - 2), 14400].min.to_i  # cap at 4 hours
+    jitter = base * RETRY_JITTER * (rand * 2 - 1)
+    base + jitter
   end
 end
