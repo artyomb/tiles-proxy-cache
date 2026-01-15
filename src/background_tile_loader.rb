@@ -8,6 +8,7 @@ class BackgroundTileLoader
   MAX_RETRY_ATTEMPTS = 15
   RETRY_JITTER = 0.2  # ±20%
   RETRY_BACKOFF_FACTOR = 2.5
+  MAX_403_ATTEMPTS = 200
 
   TRANSIENT_STATUS_CODES = [429, 500, 502, 503, 504].freeze
   CRITICAL_STATUS_CODES = [401, 403].freeze
@@ -23,6 +24,8 @@ class BackgroundTileLoader
     @cancel_token = nil
     @scan_future = nil
     @wal_task = nil
+    @consecutive_403_count = 0
+    @pending_403_tiles = []
 
     setup_progress_table
     load_todays_progress
@@ -154,6 +157,8 @@ class BackgroundTileLoader
       return unless bounds
 
       @current_progress[z] = load_progress(z)
+      @consecutive_403_count = 0
+      @pending_403_tiles = []
       update_status(z, 'active')
 
       scan_result = scan_zoom_grid(z, bounds, token)
@@ -203,6 +208,10 @@ class BackgroundTileLoader
 
         case result
         when :success
+          @consecutive_403_count = 0
+          
+          retry_pending_403_tiles(z, token) if @pending_403_tiles.any?
+          
           @tiles_today += 1
           @tiles_processed += 1
           save_progress(curr_x, curr_y, z) if @tiles_processed % 10 == 0
@@ -245,8 +254,21 @@ class BackgroundTileLoader
       result = perform_tile_fetch(x, y, z)
 
       if result[:success]
+        @consecutive_403_count = 0
         save_tile_to_db(z, x, y, result[:data])
         return :success
+      end
+
+      if result[:status] == 403
+        @consecutive_403_count += 1
+        @pending_403_tiles << {x: x, y: y, z: z}
+        
+        if @consecutive_403_count >= MAX_403_ATTEMPTS
+          LOGGER.error("Too many consecutive 403 responses (#{@consecutive_403_count}) for #{@source_name} - treating as critical error")
+          handle_critical_error(result)
+          return :critical_stop
+        end
+        return :permanent_error
       end
 
       error_class = classify_error(result[:status], result[:reason])
@@ -279,6 +301,46 @@ class BackgroundTileLoader
     end
 
     :source_unavailable
+  end
+
+  def retry_pending_403_tiles(z, token)
+    return if @pending_403_tiles.empty?
+    
+    tiles_to_retry = @pending_403_tiles.dup
+    @pending_403_tiles.clear
+    
+    LOGGER.info("Retrying #{tiles_to_retry.size} tiles with previous 403 responses for #{@source_name}")
+    
+    tiles_to_retry.each do |tile_info|
+      return if token&.resolved?
+      
+      x, y = tile_info.values_at(:x, :y)
+      result = perform_tile_fetch(x, y, z)
+      
+      if result[:success]
+        save_tile_to_db(z, x, y, result[:data])
+        @tiles_today += 1
+        @tiles_processed += 1
+        LOGGER.debug("Successfully loaded tile #{z}/#{x}/#{y} on retry (was 403)")
+      elsif result[:status] == 403
+        record_permanent_miss(x, y, z, result)
+        @tiles_processed += 1
+        LOGGER.debug("Tile #{z}/#{x}/#{y} still returns 403 on retry - marking as permanent error")
+      else
+        error_class = classify_error(result[:status], result[:reason])
+        case error_class
+        when :permanent
+          record_permanent_miss(x, y, z, result)
+          @tiles_processed += 1
+        when :transient
+          LOGGER.warn("Tile #{z}/#{x}/#{y} returned transient error #{result[:status]} on retry - skipping")
+        end
+      end
+      
+      sleep calculate_delay if result[:success]
+    end
+    
+    LOGGER.info("Completed retry of #{tiles_to_retry.size} tiles for #{@source_name}")
   end
 
   def get_headers
