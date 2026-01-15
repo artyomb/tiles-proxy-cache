@@ -282,7 +282,7 @@ class BackgroundTileLoader
   end
 
   def get_headers
-    config_headers = @route[:headers]&.dig(:request) || {}
+    config_headers = (@route[:headers]&.dig(:request) || {}).transform_keys(&:to_s)
 
     browser_headers = {
       'Accept' => 'image/webp,image/apng,image/*,*/*;q=0.8',
