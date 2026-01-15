@@ -156,7 +156,17 @@ class BackgroundTileLoader
       @current_progress[z] = load_progress(z)
       update_status(z, 'active')
 
-      scan_zoom_grid(z, bounds, token)
+      scan_result = scan_zoom_grid(z, bounds, token)
+      case scan_result
+      when :critical_error
+        update_status(z, 'critical_error')
+        return
+      when :source_unavailable
+        update_status(z, 'source_unavailable')
+        return
+      when :cancelled
+        return
+      end
 
       final_x = @current_progress[z]&.dig(:x) || 0
       final_y = @current_progress[z]&.dig(:y) || 0
@@ -184,7 +194,7 @@ class BackgroundTileLoader
       start_y = curr_x == x ? y : min_y
 
       (start_y..max_y).each do |curr_y|
-        return if token.resolved?
+        return :cancelled if token.resolved?
 
         @current_progress[z][:x] = curr_x
         @current_progress[z][:y] = curr_y
@@ -202,12 +212,16 @@ class BackgroundTileLoader
           @tiles_processed += 1
           save_progress(curr_x, curr_y, z) if @tiles_processed % 10 == 0
 
-        when :source_unavailable, :critical_stop
+        when :source_unavailable
           LOGGER.error("Stopping scan for #{@source_name} at tile #{z}/#{curr_x}/#{curr_y}")
-          return
+          return :source_unavailable
+
+        when :critical_stop
+          LOGGER.error("Stopping scan for #{@source_name} at tile #{z}/#{curr_x}/#{curr_y}")
+          return :critical_error
 
         when :cancelled
-          return
+          return :cancelled
         end
       end
     end
