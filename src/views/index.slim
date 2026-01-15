@@ -43,6 +43,8 @@
                 option value="incremental" Incremental
                 option value="full" Full Rebuild
             a.btn.reconstruct-btn href="#" onclick="startReconstructor('#{name}', event)" id="reconstruct-btn-#{name}" ⚙️ Reconstruct
+          - if route.dig(:autoscan, :enabled)
+            a.btn.reset-autoscan-btn href="#" onclick="resetAutoscan('#{name}', event)" id="reset-autoscan-btn-#{name}" 🔄 Reset Scan
           a.btn.map-btn href=url_for("/map?source=#{name}") 🌍 Map preview
           a.btn.debug-btn href=url_for("/map?source=#{name}&debug=true") Debug Map
       
@@ -136,6 +138,79 @@ javascript:
         .catch(err => { showToast(err.message, true); setReconstructControls(src, false); });
     });
   }
+  
+  const resetAutoscan = (src, e) => {
+    e.preventDefault();
+    
+    fetch(`${BASE_PATH}/api/autoscan/${src}/status`)
+      .then(r => r.json())
+      .then(statusData => {
+        showAutoscanResetModal(src, statusData.zoom_range);
+      })
+      .catch(err => showToast('Failed to fetch autoscan status: ' + err.message, true));
+  };
+  
+  const showAutoscanResetModal = (src, zoomRange) => {
+    const modalOverlay = document.getElementById('modal-overlay');
+    
+    const zoomOptions = ['<option value="all">All Zoom Levels</option>'];
+    for (let z = zoomRange.min; z <= zoomRange.max; z++) {
+      zoomOptions.push(`<option value="${z}">Zoom ${z}</option>`);
+    }
+    
+    const zoomSelectHtml = `
+      <div style="margin: 12px 0;">
+        <label style="color: #808080; font-size: 12px; display: block; margin-bottom: 6px;">Select Zoom Level:</label>
+        <select id="autoscan-zoom-select" style="width: 100%; padding: 6px; background: #2b2b2b; color: #a9b7c6; border: 1px solid #555; border-radius: 3px; font-size: 12px;">
+          ${zoomOptions.join('')}
+        </select>
+      </div>
+    `;
+    
+    document.getElementById('modal-title').textContent = 'Reset Autoscan Progress';
+    document.getElementById('modal-message').innerHTML = 
+      `Reset autoscan progress and clear errors for <strong>${src}</strong>?${zoomSelectHtml}`;
+    
+    modalCallback = () => {
+      const zoomLevel = document.getElementById('autoscan-zoom-select').value;
+      performAutoscanReset(src, zoomLevel);
+    };
+    
+    modalOverlay.classList.add('show');
+  };
+  
+  const performAutoscanReset = (src, zoomLevel) => {
+    const btn = document.getElementById(`reset-autoscan-btn-${src}`);
+    const originalText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '⏳ Resetting...';
+    
+    fetch(`${BASE_PATH}/api/autoscan/${src}/reset`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ zoom_level: zoomLevel })
+    })
+      .then(r => r.json())
+      .then(data => {
+        if (data.success) {
+          const zoomInfo = zoomLevel === 'all' ? 'all zoom levels' : `zoom ${zoomLevel}`;
+          showToast(`Autoscan reset completed for ${zoomInfo} (${data.zoom_levels.length} levels)`);
+          btn.textContent = '✓ Reset';
+          setTimeout(() => {
+          btn.textContent = originalText;
+          btn.disabled = false;
+          location.reload();
+          }, 2000);
+        } else {
+          throw new Error(data.error || 'Unknown error');
+        }
+      })
+      .catch(err => {
+        showToast('Reset failed: ' + err.message, true);
+        btn.textContent = originalText;
+        btn.disabled = false;
+      });
+  };
   
   document.addEventListener('DOMContentLoaded', () => {
     setTimeout(() => {

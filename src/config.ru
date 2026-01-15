@@ -187,6 +187,54 @@ post "/api/reconstructor/:source/start" do
   end
 end
 
+get "/api/autoscan/:source/status" do
+  content_type :json
+  
+  _, route = validate_and_get_route(params[:source])
+  loader = route[:autoscan_loader]
+  
+  halt 404, { error: "Autoscan not configured" }.to_json unless loader
+  
+  start_zoom = route[:minzoom]
+  end_zoom = route.dig(:autoscan, :max_scan_zoom)
+  source_real_minzoom = route.dig(:gap_filling, :source_real_minzoom)
+  start_zoom = [start_zoom, source_real_minzoom].compact.max if source_real_minzoom
+  
+  {
+    enabled: loader.enabled?,
+    running: loader.running?,
+    zoom_range: { min: start_zoom, max: end_zoom }
+  }.to_json
+end
+
+post "/api/autoscan/:source/reset" do
+  content_type :json
+  
+  _, route = validate_and_get_route(params[:source])
+  loader = route[:autoscan_loader]
+  
+  halt 404, { error: "Autoscan not configured" }.to_json unless loader
+  halt 400, { error: "Autoscan not enabled" }.to_json unless loader.enabled?
+  
+  zoom_level = params[:zoom_level]
+  if zoom_level && zoom_level != 'all'
+    zoom_level = zoom_level.to_i
+    start_zoom = route[:minzoom]
+    end_zoom = route.dig(:autoscan, :max_scan_zoom)
+    halt 400, { error: "Invalid zoom level" }.to_json unless (start_zoom..end_zoom).cover?(zoom_level)
+  else
+    zoom_level = nil
+  end
+  
+  result = loader.reset_progress(zoom_level: zoom_level)
+  
+  if result[:success]
+    result.to_json
+  else
+    halt 500, { error: result[:error] }.to_json
+  end
+end
+
 def create_http_client(uri, route)
   base_config = {
     url: "#{uri.scheme}://#{uri.host}",

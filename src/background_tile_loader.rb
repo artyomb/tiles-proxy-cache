@@ -116,6 +116,42 @@ class BackgroundTileLoader
     true
   end
 
+  def reset_progress(zoom_level: nil)
+    otl_span("reset_progress", {source: @source_name, zoom_level: zoom_level}) do
+      return { success: false, error: "Autoscan not enabled" } unless enabled?
+      
+      stop_completely
+      
+      zoom_levels = if zoom_level
+        [zoom_level.to_i]
+      else
+        start_zoom = @route[:minzoom]
+        end_zoom = @config[:max_scan_zoom]
+        source_real_minzoom = @route.dig(:gap_filling, :source_real_minzoom)
+        start_zoom = [start_zoom, source_real_minzoom].compact.max if source_real_minzoom
+        (start_zoom..end_zoom).to_a
+      end
+      
+      zoom_levels.each do |z|
+        reset_zoom_progress(z)
+        @route[:db][:misses].where(zoom_level: z).delete
+        LOGGER.info("Deleted misses for zoom #{z} of #{@source_name}")
+      end
+      
+      restart
+      LOGGER.info("Autoscan restarted for #{@source_name} after progress reset")
+      
+      {
+        success: true,
+        zoom_levels: zoom_levels,
+        restarted: true
+      }
+    end
+  rescue => e
+    LOGGER.error("Failed to reset progress for #{@source_name}: #{e.message}")
+    { success: false, error: e.message }
+  end
+
   def start_wal_checkpoint_thread
     return if @wal_task&.running?
 
