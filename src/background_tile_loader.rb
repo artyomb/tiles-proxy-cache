@@ -8,7 +8,8 @@ class BackgroundTileLoader
   MAX_RETRY_ATTEMPTS = 15
   RETRY_JITTER = 0.2  # ±20%
   RETRY_BACKOFF_FACTOR = 2.5
-  MAX_403_ATTEMPTS = 50000
+  MAX_403_PERCENT = 0.05
+  MAX_403_CEILING = 500_000
 
   TRANSIENT_STATUS_CODES = [429, 500, 502, 503, 504].freeze
   CRITICAL_STATUS_CODES = [401, 403].freeze
@@ -26,6 +27,7 @@ class BackgroundTileLoader
     @wal_task = nil
     @consecutive_403_count = 0
     @pending_403_tiles = []
+    @max_403_for_zoom = 1
 
     setup_progress_table
     load_todays_progress
@@ -159,6 +161,11 @@ class BackgroundTileLoader
       @current_progress[z] = load_progress(z)
       @consecutive_403_count = 0
       @pending_403_tiles = []
+      
+      expected = expected_tiles_count(z)
+      @max_403_for_zoom = [(expected * MAX_403_PERCENT).to_i, 1].max
+      @max_403_for_zoom = [@max_403_for_zoom, MAX_403_CEILING].min
+      
       update_status(z, 'active')
 
       scan_result = scan_zoom_grid(z, bounds, token)
@@ -263,8 +270,8 @@ class BackgroundTileLoader
         @consecutive_403_count += 1
         @pending_403_tiles << {x: x, y: y, z: z}
         
-        if @consecutive_403_count >= MAX_403_ATTEMPTS
-          LOGGER.error("Too many consecutive 403 responses (#{@consecutive_403_count}) for #{@source_name} - treating as critical error")
+        if @consecutive_403_count >= @max_403_for_zoom
+          LOGGER.error("Too many consecutive 403 responses (#{@consecutive_403_count}/#{@max_403_for_zoom}) for #{@source_name} zoom #{z} - treating as critical error")
           handle_critical_error(result)
           return :critical_stop
         end
