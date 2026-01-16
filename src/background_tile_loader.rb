@@ -718,10 +718,6 @@ class BackgroundTileLoader
       tile_data: Sequel.blob(data),
       updated_at: Sequel.lit("datetime('now', 'utc')")
     )
-
-    if @route.dig(:gap_filling, :enabled)
-      @route[:reconstructor]&.mark_parent_for_new_child(@route[:db], z, x, tms_y(z, y), @route[:minzoom])
-    end
   end
 
   def record_permanent_miss(x, y, z, result)
