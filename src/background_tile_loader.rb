@@ -239,10 +239,12 @@ class BackgroundTileLoader
     _, min_y, max_x, max_y = bounds
     x, y = @current_progress[z].values_at(:x, :y)
 
-    (x..max_x).each do |curr_x|
+    curr_x = x
+    while curr_x <= max_x
       start_y = curr_x == x ? y : min_y
 
-      (start_y..max_y).each do |curr_y|
+      curr_y = start_y
+      while curr_y <= max_y
         return :cancelled if token.resolved?
 
         @current_progress[z][:x] = curr_x
@@ -277,7 +279,11 @@ class BackgroundTileLoader
         when :cancelled
           return :cancelled
         end
+        
+        curr_y += 1
       end
+      
+      curr_x += 1
     end
 
     final_x = @current_progress[z]&.dig(:x)
