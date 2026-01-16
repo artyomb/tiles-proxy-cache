@@ -14,6 +14,7 @@ require_relative 'metadata_manager'
 require_relative 'background_tile_loader'
 require_relative 'database_manager'
 require_relative 'tile_reconstructor'
+require_relative 'vips_tile_validator'
 require_relative 'observability_setup'
 
 register MapLibrePreview::Extension
@@ -333,6 +334,17 @@ helpers do
     route[:db][:tiles].where(zoom_level: z, tile_column: x, tile_row: tms).select(:tile_data, :generated).first
   end
 
+  def save_tile_to_db(route, z, x, tms, data)
+    route[:db][:tiles].insert_conflict(target: [:zoom_level, :tile_column, :tile_row],
+                                       update: {
+                                         tile_data: Sequel[:excluded][:tile_data],
+                                         updated_at: Sequel.lit("datetime('now', 'utc')")
+                                       })
+                      .insert(zoom_level: z, tile_column: x, tile_row: tms,
+                              tile_data: Sequel.blob(data),
+                              updated_at: Sequel.lit("datetime('now', 'utc')"))
+  end
+
   def blob_to_string(blob)
     return blob if blob.is_a?(String)
     blob.respond_to?(:read) ? blob.read : blob.to_s
@@ -367,16 +379,28 @@ helpers do
         return nil
       end
 
-      route[:db][:tiles].insert_conflict(target: [:zoom_level, :tile_column, :tile_row],
-                                         update: {
-                                           tile_data: Sequel[:excluded][:tile_data],
-                                           updated_at: Sequel.lit("datetime('now', 'utc')")
-                                         })
-                        .insert(zoom_level: z, tile_column: x, tile_row: tms,
-                                tile_data: Sequel.blob(result[:data]),
-                                updated_at: Sequel.lit("datetime('now', 'utc')"))
+      unless route.dig(:validation, :enabled)
+        save_tile_to_db(route, z, x, tms, result[:data])
+        return result[:data]
+      end
 
-      result[:data]
+      check_transparency = route.dig(:validation, :check_transparency)
+      raise "validation.check_transparency must be specified when validation.enabled is true" if check_transparency.nil?
+
+      begin
+        validation_result = VipsTileValidator.validate(result[:data], check_transparency: check_transparency)
+
+        if [:transparent, :corrupted].include?(validation_result)
+          DatabaseManager.record_miss(route, z, x, y, validation_result.to_s, "Tile is #{validation_result}", 200, nil)
+          nil
+        else
+          save_tile_to_db(route, z, x, tms, result[:data])
+          result[:data]
+        end
+      rescue => e
+        DatabaseManager.record_miss(route, z, x, y, 'corrupted', "Validation error: #{e.message}", 200, nil)
+        nil
+      end
     end
   end
 

@@ -3,6 +3,7 @@ require 'zlib'
 require 'stringio'
 require 'concurrent-ruby'
 require_relative 'ext/terrain_downsample_extension'
+require_relative 'vips_tile_validator'
 
 class BackgroundTileLoader
   MAX_RETRY_ATTEMPTS = 15
@@ -298,8 +299,12 @@ class BackgroundTileLoader
 
       if result[:success]
         @consecutive_403_count = 0
-        save_tile_to_db(z, x, y, result[:data])
-        return :success
+        
+        if validate_and_save_tile(z, x, y, result[:data])
+          return :success
+        else
+          return :permanent_error
+        end
       end
 
       if result[:status] == 403
@@ -361,10 +366,14 @@ class BackgroundTileLoader
       result = perform_tile_fetch(x, y, z)
       
       if result[:success]
-        save_tile_to_db(z, x, y, result[:data])
-        @tiles_today += 1
-        @tiles_processed += 1
-        LOGGER.debug("Successfully loaded tile #{z}/#{x}/#{y} on retry (was 403)")
+        if validate_and_save_tile(z, x, y, result[:data])
+          @tiles_today += 1
+          @tiles_processed += 1
+          LOGGER.debug("Successfully loaded tile #{z}/#{x}/#{y} on retry (was 403)")
+        else
+          @tiles_processed += 1
+          LOGGER.debug("Tile #{z}/#{x}/#{y} failed validation on retry - marked as invalid")
+        end
       elsif result[:status] == 403
         record_permanent_miss(x, y, z, result)
         @tiles_processed += 1
@@ -702,6 +711,29 @@ class BackgroundTileLoader
         body: nil
       }
     end
+  end
+
+  def validate_and_save_tile(z, x, y, data)
+    unless @route.dig(:validation, :enabled)
+      save_tile_to_db(z, x, y, data)
+      return true
+    end
+
+    check_transparency = @route.dig(:validation, :check_transparency)
+    raise "validation.check_transparency must be specified when validation.enabled is true" if check_transparency.nil?
+
+    validation_result = VipsTileValidator.validate(data, check_transparency: check_transparency)
+
+    if [:transparent, :corrupted].include?(validation_result)
+      DatabaseManager.record_miss(@route, z, x, y, validation_result.to_s, "Tile is #{validation_result}", 200, nil)
+      false
+    else
+      save_tile_to_db(z, x, y, data)
+      true
+    end
+  rescue => e
+    DatabaseManager.record_miss(@route, z, x, y, 'corrupted', "Validation error: #{e.message}", 200, nil)
+    false
   end
 
   def save_tile_to_db(z, x, y, data)

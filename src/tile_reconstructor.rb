@@ -2,6 +2,7 @@ require 'vips'
 require 'sequel'
 require 'set'
 require_relative 'ext/terrain_downsample_extension'
+require_relative 'vips_tile_validator'
 
 class TileReconstructor
   KERNELS = %i[nearest linear cubic mitchell lanczos2 lanczos3].freeze # Vips interpolation kernels
@@ -300,7 +301,7 @@ class TileReconstructor
     case parent_tile[:generated]
     when 0
       # For original tiles, validate the actual data
-      validate_tile(parent_tile[:tile_data])
+      VipsTileValidator.validate(parent_tile[:tile_data], check_transparency: true)
     when 1..4
       :valid
     when -1
@@ -321,7 +322,7 @@ class TileReconstructor
       next unless idx
       next if tile[:generated] == -1
 
-      validation = validate_tile(tile[:tile_data])
+      validation = VipsTileValidator.validate(tile[:tile_data], check_transparency: true)
       if [:valid, :partial_transparent].include?(validation)
         children_data_array[idx] = tile[:tile_data]
         used_count += 1
@@ -445,25 +446,6 @@ class TileReconstructor
     LOGGER.info("TileReconstructor: cleaned up #{processed_count} invalid tiles#{error_count > 0 ? " (#{error_count} errors)" : ''}")
   end
 
-  # Validates tile and returns its status
-  # Returns: :valid (no alpha or fully opaque), :partial_transparent (has alpha with some transparency),
-  #          :transparent (fully transparent), or :corrupted
-  def validate_tile(tile_data)
-    return :corrupted unless tile_data
-    return :corrupted if tile_data.nil?
-
-    img = Vips::Image.new_from_buffer(tile_data, '')
-    return :valid unless img.bands == 4
-
-    alpha = img[3]
-    alpha_max = alpha.max
-    alpha_min = alpha.min
-    return :transparent if alpha_max == 0
-    return :partial_transparent if alpha_min == 0 && alpha_max > 0
-    :valid
-  rescue Vips::Error
-    :corrupted
-  end
 
   def composite_parent_over_child(parent_data, child_data, format)
     parent_img = Vips::Image.new_from_buffer(parent_data, '')

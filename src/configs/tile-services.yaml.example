@@ -27,6 +27,11 @@ Example_Satellite:
     type: "baselayer"                     # baselayer | overlay
   style_metadata:
     base_map: {type: "background"}        # base | dem | background | solid
+  validation:                             # Tile validation configuration
+    enabled: true                         # Enable/disable tile validation (default: false)
+    check_transparency: true              # true = check for fully transparent tiles, false = only check for corruption
+                                          # Valid tiles (including partially transparent) are saved to tiles table
+                                          # Invalid tiles (corrupted or fully transparent) are recorded in misses table without blob
   autoscan:
     enabled: false                        # Enable/disable background tile preloading
     daily_limit: 30000                   # Maximum tiles to fetch per day
@@ -310,6 +315,10 @@ Example_GapFilling:
                                           # average - smooth elevation
                                           # nearest - preserve exact values
                                           # maximum - preserve peaks
+  validation:                             # Tile validation configuration
+    enabled: true                         # Enable/disable tile validation
+    check_transparency: false             # false = only check for corruption, true = also check for full transparency
+                                          # When enabled, invalid tiles are recorded in misses table without blob data
   autoscan:
     enabled: false
     daily_limit: 10000
