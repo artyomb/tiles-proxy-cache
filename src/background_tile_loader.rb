@@ -264,6 +264,7 @@ class BackgroundTileLoader
         when :permanent_error
           @tiles_processed += 1
           save_progress(curr_x, curr_y, z) if @tiles_processed % 10 == 0
+          sleep calculate_delay
 
         when :source_unavailable
           LOGGER.error("Stopping scan for #{@source_name} at tile #{z}/#{curr_x}/#{curr_y}")
@@ -389,7 +390,7 @@ class BackgroundTileLoader
         end
       end
       
-      sleep calculate_delay if result[:success]
+      sleep calculate_delay
     end
     
     LOGGER.info("Completed retry of #{tiles_to_retry.size} tiles for #{@source_name}")
