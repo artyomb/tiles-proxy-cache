@@ -85,7 +85,7 @@ CONFIG_FOLDER = ENV['RACK_ENV'] == 'production' ? '/configs' : "#{__dir__}/confi
 ROUTES = Dir["#{CONFIG_FOLDER}/*.{yaml,yml}"].map { YAML.load_file(_1, symbolize_names: true) }.reduce({}, :merge)
 
 SAFE_KEYS = %i[path target minzoom maxzoom mbtiles_file miss_timeout metadata style_metadata autoscan]
-DB_SAFE_KEYS = SAFE_KEYS + %i[db]
+DB_SAFE_KEYS = SAFE_KEYS + %i[db validation]
 
 require_relative 'ext/lerc_extension'
 require_relative 'ext/terrain_downsample_extension'
@@ -133,6 +133,7 @@ end
 get "/db" do
   source, route = validate_and_get_route(params[:source] || ROUTES.keys.first.to_s)
   @source, @route = source, route.slice(*DB_SAFE_KEYS)
+  @validation_enabled = route.dig(:validation, :enabled) || false
   slim :database
 end
 
@@ -156,6 +157,54 @@ get "/admin/vacuum" do
 rescue => e
   status 500
   { status: "error", message: e.message }.to_json
+end
+
+post "/admin/validate/:source/start" do
+  content_type :json
+
+  source, route = validate_and_get_route(params[:source])
+
+  unless route.dig(:validation, :enabled)
+    halt 400, { error: "Validation is not enabled for this source" }.to_json
+  end
+
+  begin
+    VipsTileValidator.start_cleanup(route, source)
+    { success: true }.to_json
+  rescue => e
+    if e.message.include?("already running")
+      halt 409, { error: e.message }.to_json
+    else
+      halt 500, { error: e.message }.to_json
+    end
+  end
+end
+
+get "/admin/validate/:source/status" do
+  content_type :json
+
+  _, route = validate_and_get_route(params[:source])
+  VipsTileValidator.cleanup_status(route).to_json
+end
+
+post "/admin/validate/:source/stop" do
+  content_type :json
+
+  _, route = validate_and_get_route(params[:source])
+
+  begin
+    if VipsTileValidator.stop_cleanup(route)
+      { success: true }.to_json
+    else
+      halt 500, { error: "Failed to stop cleanup" }.to_json
+    end
+  rescue => e
+    if e.message.include?("not running")
+      halt 400, { error: e.message }.to_json
+    else
+      halt 500, { error: e.message }.to_json
+    end
+  end
 end
 
 get "/api/reconstructor/:source/status" do

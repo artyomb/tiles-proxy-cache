@@ -52,10 +52,41 @@ html
       | .btn-home:hover { background: #7bb366; border-color: #8cc477; transform: scale(1.05); }
       | .btn-vacuum { display: inline-flex; align-items: center; justify-content: center; padding: 8px 16px; border-radius: 4px; background: #ffc66d; color: #2b2b2b; text-decoration: none; border: 1px solid #e6b85a; font-size: 12px; font-weight: bold; transition: all 0.3s ease; gap: 6px; cursor: pointer; }
       | .btn-vacuum:hover { background: #ffd87d; border-color: #f0c050; transform: translateY(-1px); }
+      | .btn-vacuum:disabled { opacity: 0.5; cursor: not-allowed; }
       | .vacuum-title { color: #ffc66d; font-weight: bold; margin-bottom: 8px; font-size: 14px; }
       | .vacuum-desc { color: #808080; font-size: 11px; margin-bottom: 12px; line-height: 1.4; }
+      | .btn-validate { display: inline-flex; align-items: center; justify-content: center; padding: 8px 16px; border-radius: 4px; background: #c75450; color: #fff; text-decoration: none; border: 1px solid #d76460; font-size: 12px; font-weight: bold; transition: all 0.3s ease; gap: 6px; cursor: pointer; }
+      | .btn-validate:hover { background: #d76460; border-color: #e77470; transform: translateY(-1px); }
+      | .btn-validate:disabled { opacity: 0.5; cursor: not-allowed; }
+      | .btn-stop-validate { display: inline-flex; align-items: center; justify-content: center; padding: 8px 16px; border-radius: 4px; background: #808080; color: #fff; text-decoration: none; border: 1px solid #999; font-size: 12px; font-weight: bold; transition: all 0.3s ease; gap: 6px; cursor: pointer; margin-left: 8px; }
+      | .btn-stop-validate:hover { background: #999; border-color: #aaa; transform: translateY(-1px); }
+      | .btn-stop-validate:disabled { opacity: 0.5; cursor: not-allowed; }
+      | .validate-title { color: #c75450; font-weight: bold; margin-bottom: 8px; font-size: 14px; }
+      | .validate-desc { color: #808080; font-size: 11px; margin-bottom: 12px; line-height: 1.4; }
+      | .validate-stats { background: #313335; border: 1px solid #464749; border-radius: 4px; padding: 12px; margin-top: 12px; }
+      | .validate-stats-title { color: #ffc66d; font-weight: bold; margin-bottom: 8px; font-size: 12px; }
+      | .validate-stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 8px; }
+      | .validate-stat-item { display: flex; flex-direction: column; gap: 4px; }
+      | .validate-stat-label { color: #808080; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; }
+      | .validate-stat-value { color: #6897bb; font-size: 14px; font-weight: bold; font-family: 'Courier New', monospace; }
+      | .validate-progress { margin-top: 8px; }
+      | .validate-progress-bar { width: 100%; height: 8px; background: #2b2b2b; border-radius: 4px; overflow: hidden; border: 1px solid #464749; }
+      | .validate-progress-fill { height: 100%; background: linear-gradient(90deg, #6a9955 0%, #7bb366 100%); transition: width 0.3s ease; }
+      | .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 1000; align-items: center; justify-content: center; }
+      | .modal-overlay.show { display: flex; }
+      | .modal-content { background: #3c3f41; border: 1px solid #555; border-radius: 6px; padding: 24px; max-width: 400px; box-shadow: 0 4px 16px rgba(0,0,0,0.4); }
+      | .modal-title { color: #ffc66d; font-size: 16px; font-weight: bold; margin-bottom: 12px; }
+      | .modal-message { color: #a9b7c6; font-size: 13px; margin-bottom: 20px; }
+      | .modal-buttons { display: flex; gap: 8px; justify-content: flex-end; }
 
   body
+    .modal-overlay id="modal-overlay"
+      .modal-content
+        .modal-title id="modal-title"
+        .modal-message id="modal-message"
+        .modal-buttons
+          a.btn onclick="closeModal()" Cancel
+          a.btn.btn-primary onclick="confirmModal()" id="modal-confirm" OK
     .container
       .header-blocks
         .header-block
@@ -65,6 +96,30 @@ html
           .vacuum-title 🗄️ Database Maintenance
           .vacuum-desc VACUUM optimizes database files by reclaiming unused space and defragmenting data. This operation runs in background for all databases and may take several minutes for large databases.
           button.btn-vacuum onclick="runVacuum()" 🧹 Start VACUUM
+        - if @validation_enabled
+          .header-block
+            .validate-title 🔍 Tile Validation & Cleanup
+            .validate-desc Validates cached tiles and removes invalid (corrupted or transparent) tiles from the database. This process may take a long time for large databases.
+            button.btn-validate id="btn-validate" onclick="startValidation()" 🧹 Start Validation
+            button.btn-stop-validate id="btn-stop-validate" onclick="stopValidation()" style="display: none;" ⏹ Stop
+            #validate-stats.validate-stats style="display: none;"
+              .validate-stats-title Validation Progress
+              .validate-stats-grid
+                .validate-stat-item
+                  .validate-stat-label Processed
+                  .validate-stat-value id="validate-processed" 0
+                .validate-stat-item
+                  .validate-stat-label Invalid
+                  .validate-stat-value id="validate-invalid" 0
+                .validate-stat-item
+                  .validate-stat-label Valid
+                  .validate-stat-value id="validate-valid" 0
+                .validate-stat-item
+                  .validate-stat-label Total
+                  .validate-stat-value id="validate-total" 0
+              .validate-progress
+                .validate-progress-bar
+                  .validate-progress-fill id="validate-progress" style="width: 0%;"
 
       .section
         .section-title Navigation
@@ -130,28 +185,160 @@ html
 
 javascript:
   const BASE_PATH = '#{base_path}';
+  const SOURCE = '#{@source}';
+  let validateStatusInterval = null;
+  let modalCallback = null;
+  
+  const $ = id => document.getElementById(id);
+  
+  const showModal = (title, message, onConfirm) => {
+    $('modal-title').textContent = title;
+    $('modal-message').textContent = message;
+    modalCallback = onConfirm;
+    $('modal-overlay').classList.add('show');
+  };
+  
+  const closeModal = () => {
+    $('modal-overlay').classList.remove('show');
+    modalCallback = null;
+  };
+  
+  const confirmModal = () => {
+    if (modalCallback) modalCallback();
+    closeModal();
+  };
   
   const runVacuum = async () => {
-    const button = document.querySelector('.btn-vacuum');
-    const originalText = button.innerHTML;
-    
-    const setButtonState = (text, disabled = false, opacity = '1') => {
-      button.innerHTML = text;
-      button.disabled = disabled;
-      button.style.opacity = opacity;
+    const btn = document.querySelector('.btn-vacuum');
+    const originalText = btn.innerHTML;
+    const setState = (text, disabled = false) => {
+      btn.innerHTML = text;
+      btn.disabled = disabled;
+      btn.style.opacity = disabled ? '0.7' : '1';
     };
     
-    const resetButton = () => setButtonState(originalText);
-    
-    setButtonState('Running...', true, '0.7');
-    
+    setState('Running...', true);
     try {
-      const { status, message } = await fetch(`${BASE_PATH}/admin/vacuum`).then(r => r.json());
-      setButtonState(status === 'success' ? 'Started' : 'Failed');
-      setTimeout(resetButton, status === 'success' ? 2000 : 3000);
+      const { status } = await fetch(`${BASE_PATH}/admin/vacuum`).then(r => r.json());
+      setState(status === 'success' ? 'Started' : 'Failed');
+      setTimeout(() => setState(originalText), status === 'success' ? 2000 : 3000);
     } catch (error) {
-      setButtonState('Failed');
+      setState('Failed');
       console.error('VACUUM failed:', error);
-      setTimeout(resetButton, 3000);
+      setTimeout(() => setState(originalText), 3000);
     }
   };
+  
+  const startValidation = () => showModal('Confirm Validation', 'Start tile validation and cleanup process? This will check all cached tiles and remove invalid ones. The process may take a long time.', performStartValidation);
+  
+  const performStartValidation = async () => {
+    const btnStart = $('btn-validate');
+    const originalText = btnStart.innerHTML;
+    btnStart.disabled = true;
+    btnStart.innerHTML = 'Starting...';
+    
+    try {
+      const response = await fetch(`${BASE_PATH}/admin/validate/${SOURCE}/start`, { method: 'POST' });
+      const data = await response.json();
+      
+      if (response.ok && data.success) {
+        btnStart.style.display = 'none';
+        $('btn-stop-validate').style.display = 'inline-flex';
+        $('validate-stats').style.display = 'block';
+        startValidationStatusPolling();
+      } else {
+        throw new Error(data.error || 'Failed to start validation');
+      }
+    } catch (error) {
+      btnStart.innerHTML = originalText;
+      btnStart.disabled = false;
+      alert(`Failed to start validation: ${error.message || 'Unknown error occurred'}`);
+      console.error('Validation start failed:', error);
+    }
+  };
+  
+  const stopValidation = () => showModal('Confirm Stop', 'Stop the validation process? The current progress will be saved.', performStopValidation);
+  
+  const performStopValidation = async () => {
+    const btnStop = $('btn-stop-validate');
+    const originalText = btnStop.innerHTML;
+    btnStop.disabled = true;
+    btnStop.innerHTML = 'Stopping...';
+    
+    try {
+      const response = await fetch(`${BASE_PATH}/admin/validate/${SOURCE}/stop`, { method: 'POST' });
+      const data = await response.json();
+      
+      if (response.ok && data.success) {
+        stopValidationStatusPolling();
+        $('btn-validate').style.display = 'inline-flex';
+        $('btn-validate').disabled = false;
+        btnStop.style.display = 'none';
+        $('validate-stats').style.display = 'none';
+      } else {
+        throw new Error(data.error || 'Failed to stop validation');
+      }
+    } catch (error) {
+      btnStop.disabled = false;
+      btnStop.innerHTML = originalText;
+      alert(`Failed to stop validation: ${error.message || 'Unknown error occurred'}`);
+      console.error('Validation stop failed:', error);
+    }
+  };
+  
+  const updateValidationStats = status => {
+    $('validate-processed').textContent = status.processed.toLocaleString();
+    $('validate-invalid').textContent = status.invalid.toLocaleString();
+    $('validate-valid').textContent = status.valid.toLocaleString();
+    $('validate-total').textContent = status.total.toLocaleString();
+    $('validate-progress').style.width = `${status.total > 0 ? (status.processed / status.total) * 100 : 0}%`;
+  };
+  
+  const startValidationStatusPolling = () => {
+    if (validateStatusInterval) clearInterval(validateStatusInterval);
+    
+    const pollStatus = async () => {
+      try {
+        const status = await fetch(`${BASE_PATH}/admin/validate/${SOURCE}/status`).then(r => r.json());
+        updateValidationStats(status);
+        
+        if (!status.running) {
+          stopValidationStatusPolling();
+          $('btn-validate').style.display = 'inline-flex';
+          $('btn-validate').disabled = false;
+          $('btn-stop-validate').style.display = 'none';
+          setTimeout(() => { $('validate-stats').style.display = 'none'; }, status.processed > 0 ? 5000 : 0);
+        }
+      } catch (error) {
+        console.error('Failed to fetch validation status:', error);
+      }
+    };
+    
+    pollStatus();
+    validateStatusInterval = setInterval(pollStatus, 2000);
+  };
+  
+  const stopValidationStatusPolling = () => {
+    if (validateStatusInterval) {
+      clearInterval(validateStatusInterval);
+      validateStatusInterval = null;
+    }
+  };
+  
+  document.addEventListener('DOMContentLoaded', () => {
+    const btnValidate = $('btn-validate');
+    if (btnValidate) {
+      fetch(`${BASE_PATH}/admin/validate/${SOURCE}/status`)
+        .then(r => r.json())
+        .then(status => {
+          if (status.running) {
+            btnValidate.style.display = 'none';
+            $('btn-stop-validate').style.display = 'inline-flex';
+            $('validate-stats').style.display = 'block';
+            updateValidationStats(status);
+            startValidationStatusPolling();
+          }
+        })
+        .catch(err => console.error('Failed to check validation status:', err));
+    }
+  });
