@@ -126,6 +126,26 @@ module GeometryTileCalculator
     total
   end
 
+  # Returns bounds segments for MapLibre style sources.
+  # If bounds cross the dateline, returns two segments; otherwise returns one.
+  #
+  # @param bounds_str [String] Bounds string in format "west,south,east,north"
+  # @return [Array<Array<Float>>] Array of bounds segments, each as [west, south, east, north]
+  def bounds_segments_for_style(bounds_str)
+    return [] unless bounds_str
+
+    west, south, east, north = bounds_str.split(',').map(&:to_f)
+    west_norm = normalize_longitude(west)
+    east_norm = normalize_longitude(east)
+
+    segments = []
+    each_bbox_segment(west_norm, south, east_norm, north) do |w, s, e, n|
+      segments << [w, s, e, n]
+    end
+
+    segments
+  end
+
   private
 
   def lonlat_to_tile(lng, lat, zoom, truncate: false)
