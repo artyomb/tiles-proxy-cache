@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative 'geometry_tile_calculator'
+
 module ViewHelpers
   def get_tiles_size(route)
     db = route[:db]
@@ -45,8 +47,10 @@ module ViewHelpers
       .group(:zoom_level)
       .to_hash(:zoom_level, :count) : {}
 
+    bounds_str = route.dig(:metadata, :bounds) || '-180,-85.0511,180,85.0511'
+    
     coverage_data = (min_zoom..max_zoom).map do |z|
-      possible = tiles_per_zoom(z, route)
+      possible = GeometryTileCalculator.count_tiles_in_bounds_string(bounds_str, z)
       zoom_data = tiles_by_zoom[z] || {}
       cached = (zoom_data[:cached] || 0).to_i
       generated = (zoom_data[:generated] || 0).to_i
