@@ -4,6 +4,7 @@ require 'stringio'
 require 'concurrent-ruby'
 require_relative 'ext/terrain_downsample_extension'
 require_relative 'vips_tile_validator'
+require_relative 'geometry_tile_calculator'
 
 class BackgroundTileLoader
   MAX_RETRY_ATTEMPTS = 15
@@ -192,8 +193,8 @@ class BackgroundTileLoader
         return
       end
 
-      bounds = get_bounds_for_zoom(z)
-      return unless bounds
+      tile_boundaries = get_bounds_for_zoom(z)
+      return unless tile_boundaries
 
       @current_progress[z] = load_progress(z)
       @consecutive_403_count = 0
@@ -205,7 +206,7 @@ class BackgroundTileLoader
       
       update_status(z, 'active')
 
-      scan_result = scan_zoom_grid(z, bounds, token)
+      scan_result = scan_zoom_boundaries(z, tile_boundaries, token)
       case scan_result
       when :critical_error
         update_status(z, 'critical_error')
@@ -235,15 +236,35 @@ class BackgroundTileLoader
     end
   end
 
+  def scan_zoom_boundaries(z, tile_boundaries, token)
+    segments = []
+    segments << tile_boundaries[:west][z] if tile_boundaries[:west] && tile_boundaries[:west][z]
+    segments << tile_boundaries[:east][z] if tile_boundaries[:east] && tile_boundaries[:east][z]
+
+    segments.each do |bounds|
+      result = scan_zoom_grid(z, bounds, token)
+      return result unless result == :completed
+    end
+
+    LOGGER.info("Completed zoom level #{z} for #{@source_name}")
+    :completed
+  end
+
   def scan_zoom_grid(z, bounds, token)
-    _, min_y, max_x, max_y = bounds
+    min_x, min_y, max_x, max_y = bounds.values_at(:min_x, :min_y, :max_x, :max_y)
     x, y = @current_progress[z].values_at(:x, :y)
 
-    curr_x = x
-    while curr_x <= max_x
-      start_y = curr_x == x ? y : min_y
+    if x < min_x || x > max_x || y < min_y || y > max_y
+      curr_x = min_x
+      start_y = min_y
+    else
+      curr_x = [x, min_x].max
+      start_y = curr_x == x ? [y, min_y].max : min_y
+    end
 
-      curr_y = start_y
+    while curr_x <= max_x
+      curr_y = curr_x == min_x ? start_y : min_y
+
       while curr_y <= max_y
         return :cancelled if token.resolved?
 
@@ -290,7 +311,7 @@ class BackgroundTileLoader
     final_y = @current_progress[z]&.dig(:y)
     save_progress(final_x, final_y, z) if @tiles_processed % 10 != 0
 
-    LOGGER.info("Completed zoom level #{z} for #{@source_name}")
+    :completed
   end
 
   def fetch_tile(x, y, z, token = nil)
@@ -433,14 +454,7 @@ class BackgroundTileLoader
 
   def get_bounds_for_zoom(z)
     bounds_str = @config[:bounds] || @route.dig(:metadata, :bounds) || "-180,-85.0511,180,85.0511"
-    west, south, east, north = bounds_str.split(',').map(&:to_f)
-
-    [
-      [(west + 180) / 360 * (1 << z), 0].max.floor,
-      [(1 - Math.log(Math.tan(north * Math::PI / 180) + 1 / Math.cos(north * Math::PI / 180)) / Math::PI) / 2 * (1 << z), 0].max.floor,
-      [(east + 180) / 360 * (1 << z), (1 << z) - 1].min.floor,
-      [(1 - Math.log(Math.tan(south * Math::PI / 180) + 1 / Math.cos(south * Math::PI / 180)) / Math::PI) / 2 * (1 << z), (1 << z) - 1].min.floor
-    ]
+    GeometryTileCalculator.tiles_for_bounds_string(bounds_str, z)
   end
 
   def load_progress(z)
@@ -570,11 +584,8 @@ class BackgroundTileLoader
   end
 
   def expected_tiles_count(z)
-    bounds = get_bounds_for_zoom(z)
-    return 0 unless bounds
-
-    min_x, min_y, max_x, max_y = bounds
-    (max_x - min_x + 1) * (max_y - min_y + 1)
+    bounds_str = @config[:bounds] || @route.dig(:metadata, :bounds) || "-180,-85.0511,180,85.0511"
+    GeometryTileCalculator.count_tiles_in_bounds_string(bounds_str, z)
   end
 
   def reset_zoom_progress(z)
