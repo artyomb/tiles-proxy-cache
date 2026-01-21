@@ -16,6 +16,7 @@ require_relative 'database_manager'
 require_relative 'tile_reconstructor'
 require_relative 'vips_tile_validator'
 require_relative 'observability_setup'
+require_relative 'geometry_tile_calculator'
 
 register MapLibrePreview::Extension
 
@@ -336,6 +337,10 @@ ROUTES.each do |_name, route|
     source_real_minzoom = route.dig(:gap_filling, :source_real_minzoom)
     return serve_no_content if source_real_minzoom && z < source_real_minzoom
 
+    unless tile_within_bounds?(route, z, x, y)
+      return serve_no_content
+    end
+
     if (miss_status = should_skip_request?(route, z, x, y))
       return debug_mode? ? serve_error_tile(route, miss_status) : serve_no_content
     end
@@ -451,6 +456,16 @@ helpers do
         nil
       end
     end
+  end
+
+  def tile_within_bounds?(route, z, x, y)
+    bounds_str = route.dig(:metadata, :bounds)
+    return true unless bounds_str
+
+    route[:tile_boundaries_cache] ||= {}
+    route[:tile_boundaries_cache][z] ||= GeometryTileCalculator.tiles_for_bounds_string(bounds_str, z)
+    
+    GeometryTileCalculator.tile_in_tile_boundaries?(x, y, z, route[:tile_boundaries_cache][z])
   end
 
   def should_skip_request?(route, z, x, y)
