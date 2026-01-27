@@ -296,7 +296,7 @@ def create_http_client(uri, route)
     f.request :retry, max: 2, interval: 0.2, backoff_factor: 2
     f.options.timeout = 15
     f.options.open_timeout = 10
-    f.adapter :net_http_persistent, pool_size: 20, idle_timeout: 60
+    f.adapter :net_http_persistent, pool_size: 40, idle_timeout: 60
   end
 end
 
