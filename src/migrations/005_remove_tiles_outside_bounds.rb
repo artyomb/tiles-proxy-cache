@@ -5,7 +5,7 @@ Sequel.migration do
     require_relative '../geometry_tile_calculator'
 
     bounds_str = self[:metadata].where(name: 'bounds').get(:value)
-    return unless bounds_str
+    next unless bounds_str
 
     zoom_levels = self[:tiles].select(:zoom_level).distinct.map { |r| r[:zoom_level] }.sort
 
