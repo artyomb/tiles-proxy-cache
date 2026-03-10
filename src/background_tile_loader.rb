@@ -262,8 +262,9 @@ class BackgroundTileLoader
       start_y = curr_x == x ? [y, min_y].max : min_y
     end
 
+    first_x = curr_x
     while curr_x <= max_x
-      curr_y = curr_x == min_x ? start_y : min_y
+      curr_y = curr_x == first_x ? start_y : min_y
 
       while curr_y <= max_y
         return :cancelled if token.resolved?
