@@ -459,13 +459,11 @@ class BackgroundTileLoader
 
   def load_progress(z)
     row = @route[:db][:tile_scan_progress].where(source: @source_name, zoom_level: z).first
+    return { x: 0, y: 0 } unless row
 
-    if row && row[:last_scan_date] == Date.today.to_s
-      @tiles_today = [@tiles_today, row[:tiles_today]].max
-      { x: row[:last_x], y: row[:last_y] }
-    else
-      { x: 0, y: 0 }
-    end
+    @tiles_today = [@tiles_today, row[:tiles_today].to_i].max if row[:last_scan_date] == Date.today.to_s
+
+    { x: row[:last_x] || 0, y: row[:last_y] || 0 }
   end
 
   def save_progress(x, y, z)
