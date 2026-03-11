@@ -227,7 +227,7 @@ class BackgroundTileLoader
         LOGGER.info("Zoom #{z} marked as completed for #{@source_name}")
       else
         expected = expected_tiles_count(z)
-        actual_tiles = @route[:db][:tiles].where(zoom_level: z).count
+        actual_tiles = cached_tiles_count(z)
         errors = @route[:db][:misses].where(zoom_level: z).count
         remaining = expected - actual_tiles - errors
         LOGGER.error("Zoom #{z} grid scan finished but incomplete for #{@source_name}: actual=#{actual_tiles}, expected=#{expected}, errors=#{errors}, remaining=#{remaining}, running=#{running?}")
@@ -577,9 +577,13 @@ class BackgroundTileLoader
     LOGGER.warn("Failed to initialize zoom progress: #{e}")
   end
 
+  def cached_tiles_count(z)
+    @route[:db][:tiles].where(zoom_level: z).where(Sequel.|(Sequel[:generated] => 0, Sequel[:generated] => nil)).count
+  end
+
   def zoom_complete?(z)
     expected = expected_tiles_count(z)
-    actual_tiles = @route[:db][:tiles].where(zoom_level: z).where(Sequel.|(Sequel[:generated] => 0, Sequel[:generated] => nil)).count
+    actual_tiles = cached_tiles_count(z)
     errors = @route[:db][:misses].where(zoom_level: z).count
     processed = actual_tiles + errors
 
