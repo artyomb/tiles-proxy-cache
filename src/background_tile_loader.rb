@@ -290,6 +290,10 @@ class BackgroundTileLoader
           save_progress(curr_x, curr_y, z) if @tiles_processed % 10 == 0
           sleep calculate_delay
 
+        when :skipped
+          @tiles_processed += 1
+          save_progress(curr_x, curr_y, z) if @tiles_processed % 10 == 0
+
         when :source_unavailable
           LOGGER.error("Stopping scan for #{@source_name} at tile #{z}/#{curr_x}/#{curr_y}")
           return :source_unavailable
@@ -316,7 +320,8 @@ class BackgroundTileLoader
   end
 
   def fetch_tile(x, y, z, token = nil)
-    return :permanent_error if tile_exists?(x, y, z)
+    return :skipped if tile_exists?(x, y, z)
+    return :skipped if miss_permanent?(x, y, z)
 
     attempts = 0
 
@@ -446,6 +451,14 @@ class BackgroundTileLoader
 
   def tile_exists?(x, y, z)
     @route[:db][:tiles].where(zoom_level: z, tile_column: x, tile_row: tms_y(z, y)).get(1)
+  end
+
+  def miss_permanent?(x, y, z)
+    row = @route[:db][:misses].where(zoom_level: z, tile_column: x, tile_row: tms_y(z, y)).select(:reason).first
+    return false unless row
+
+    reason = row[:reason].to_s
+    reason.start_with?('permanent:') || %w[transparent corrupted].include?(reason)
   end
 
   def calculate_delay
