@@ -578,7 +578,7 @@ class BackgroundTileLoader
   end
 
   def cached_tiles_count(z)
-    @route[:db][:tiles].where(zoom_level: z).where(Sequel.|(Sequel[:generated] => 0, Sequel[:generated] => nil)).count
+    @route[:db][:tiles].where(zoom_level: z).where(Sequel.lit('generated = 0 OR generated IS NULL')).count
   end
 
   def zoom_complete?(z)
