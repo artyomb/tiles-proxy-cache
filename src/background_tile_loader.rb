@@ -293,6 +293,7 @@ class BackgroundTileLoader
         when :skipped
           @tiles_processed += 1
           save_progress(curr_x, curr_y, z) if @tiles_processed % 10 == 0
+          sleep 0.001
 
         when :source_unavailable
           LOGGER.error("Stopping scan for #{@source_name} at tile #{z}/#{curr_x}/#{curr_y}")
