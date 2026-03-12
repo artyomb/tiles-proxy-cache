@@ -7,5 +7,7 @@ yarn.lock
 .idea
 coverage
 */spec/results
+AGENTS.md
+**/.knowledge/
 
 
