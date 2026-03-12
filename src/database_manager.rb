@@ -7,7 +7,7 @@ module DatabaseManager
 
   def setup_route_database(route, route_name)
     db_path = "sqlite://" + route[:mbtiles_file]
-    db = Sequel.connect(db_path, max_connections: 8)
+    db = Sequel.connect(db_path, max_connections: 20)
 
     configure_sqlite_pragmas(db)
     create_tables(db)
