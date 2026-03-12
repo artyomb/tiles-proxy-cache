@@ -552,7 +552,14 @@ class BackgroundTileLoader
 
     (start_zoom..end_zoom).each do |z|
       existing = @route[:db][:tile_scan_progress].where(source: @source_name, zoom_level: z).first
-      unless existing
+      
+      if existing && ['error', 'critical_error'].include?(existing[:status])
+        reset_zoom_progress(z)
+        LOGGER.info("Reset #{existing[:status]} status for zoom #{z} of #{@source_name} on startup")
+      elsif existing && existing[:status] == 'source_unavailable'
+        @route[:db][:tile_scan_progress].where(source: @source_name, zoom_level: z).update(status: 'stopped')
+        LOGGER.info("Reset source_unavailable status (keeping coordinates) for zoom #{z} of #{@source_name} on startup")
+      else
         @route[:db][:tile_scan_progress].insert_conflict(
           target: [:source, :zoom_level]
         ).insert(
@@ -588,7 +595,10 @@ class BackgroundTileLoader
     elsif current_status == 'completed' && processed < expected
       reset_zoom_progress(z)
       false
-    elsif ['active', 'stopped', 'waiting', 'error', 'critical_error', 'source_unavailable'].include?(current_status)
+    elsif ['active', 'stopped', 'waiting'].include?(current_status)
+      false
+    else
+      reset_zoom_progress(z)
       false
     end
   end
