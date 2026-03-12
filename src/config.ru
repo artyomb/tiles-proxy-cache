@@ -22,6 +22,10 @@ register MapLibrePreview::Extension
 
 StackServiceBase.rack_setup self
 
+# Load after rack_setup to override stack-service-base/fiber_pool
+# and enable FiberConnectionPool for SQLite as well.
+require_relative 'fiber_pool'
+
 set :public_folder, "#{__dir__}/public"
 
 use Rack.middleware_klass do |env, app|
