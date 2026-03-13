@@ -119,7 +119,15 @@ class BackgroundTileLoader
   end
 
   def reset_progress(zoom_level: nil)
-    otl_span("reset_progress", {source: @source_name, zoom_level: zoom_level}) do
+    reset_scope = zoom_level.nil? ? "all_zooms" : "single_zoom"
+    otl_span(
+      "reset_progress",
+      {
+        source: @source_name,
+        zoom_level: zoom_level,
+        reset_scope: reset_scope,
+      }
+    ) do
       return { success: false, error: "Autoscan not enabled" } unless enabled?
       
       stop_completely
