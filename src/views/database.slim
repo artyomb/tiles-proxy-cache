@@ -78,6 +78,10 @@ html
       | .modal-title { color: #ffc66d; font-size: 16px; font-weight: bold; margin-bottom: 12px; }
       | .modal-message { color: #a9b7c6; font-size: 13px; margin-bottom: 20px; }
       | .modal-buttons { display: flex; gap: 8px; justify-content: flex-end; }
+      | .json-box { background: #2b2b2b; border: 1px solid #464749; border-radius: 4px; padding: 12px; overflow-x: auto; max-height: 400px; overflow-y: auto; }
+      | .json-box pre { margin: 0; font-family: 'JetBrains Mono', 'Courier New', monospace; font-size: 12px; color: #a9b7c6; white-space: pre; line-height: 1.5; }
+      | .json-missing { color: #808080; font-size: 12px; font-style: italic; }
+      | .json-path { color: #808080; font-size: 11px; margin-bottom: 8px; font-family: 'Courier New', monospace; }
 
   body
     .modal-overlay id="modal-overlay"
@@ -182,6 +186,18 @@ html
                   a.pagination-btn href=url_for("/db?source=#{@source}&table=#{current_table}&page=#{page-1}") ← Previous
                 - if page < total_pages
                   a.pagination-btn href=url_for("/db?source=#{@source}&table=#{current_table}&page=#{page+1}") Next →
+
+      - json_path = @route[:mbtiles_file]&.sub(/\.mbtiles$/, '.progress.json')
+      - json_content = json_path && File.exist?(json_path) ? File.read(json_path) : nil
+      .section
+        .section-title Progress JSON
+        - if json_content
+          .json-path = json_path
+          .json-box
+            pre = JSON.pretty_generate(JSON.parse(json_content)) rescue json_content
+        - else
+          .json-path = json_path || '(mbtiles_file not configured)'
+          .json-missing File not found — progress has not been saved to JSON yet.
 
 javascript:
   const BASE_PATH = '#{base_path}';
