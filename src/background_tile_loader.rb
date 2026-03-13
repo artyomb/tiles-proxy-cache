@@ -1,6 +1,7 @@
 require 'vips'
 require 'zlib'
 require 'stringio'
+require 'json'
 require 'concurrent-ruby'
 require_relative 'ext/terrain_downsample_extension'
 require_relative 'vips_tile_validator'
@@ -30,6 +31,7 @@ class BackgroundTileLoader
     @consecutive_403_count = 0
     @pending_403_tiles = []
     @max_403_for_zoom = 1
+    @json_mutex = Mutex.new
 
     setup_progress_table
     load_todays_progress
@@ -191,6 +193,96 @@ class BackgroundTileLoader
       String :status, default: 'waiting'
       primary_key [:source, :zoom_level]
     end
+  end
+
+  def progress_json_path
+    mbtiles = @route[:mbtiles_file]
+    return nil unless mbtiles
+
+    mbtiles.sub(/\.mbtiles$/, '.progress.json')
+  rescue
+    nil
+  end
+
+  def load_json_file
+    path = progress_json_path
+    return nil unless path && File.exist?(path)
+
+    JSON.parse(File.read(path))
+  rescue => e
+    LOGGER.warn("Failed to read progress JSON: #{e}")
+    nil
+  end
+
+  def load_progress_from_json(z)
+    @json_mutex.synchronize do
+      data = load_json_file
+      return nil unless data
+
+      zoom = data.dig('zooms', z.to_s)
+      return nil unless zoom
+
+      x, y = zoom['last_x'], zoom['last_y']
+      return nil if x.nil? || y.nil?
+
+      @tiles_today = [@tiles_today, zoom['tiles_today'].to_i].max if zoom['last_scan_date'] == Date.today.to_s
+      { x: x, y: y }
+    end
+  end
+
+  def load_todays_progress_from_json
+    @json_mutex.synchronize do
+      data = load_json_file
+      return nil unless data
+
+      today = Date.today.to_s
+      total = (data['zooms'] || {}).values.sum do |zoom|
+        zoom['last_scan_date'] == today ? zoom['tiles_today'].to_i : 0
+      end
+      total
+    end
+  end
+
+  def save_progress_to_json(x, y, z, status: nil)
+    path = progress_json_path
+    return unless path
+
+    @json_mutex.synchronize do
+      data = load_json_file || { 'source' => @source_name, 'zooms' => {} }
+      data['zooms'][z.to_s] ||= {}
+      data['zooms'][z.to_s].merge!(
+        'last_x' => x,
+        'last_y' => y,
+        'tiles_today' => @tiles_today,
+        'last_scan_date' => Date.today.to_s
+      )
+      data['zooms'][z.to_s]['status'] = status if status
+      data['updated_at'] = Time.now.iso8601
+
+      tmp = "#{path}.tmp"
+      File.write(tmp, JSON.generate(data))
+      File.rename(tmp, path)
+    end
+  rescue => e
+    LOGGER.warn("Failed to save progress to JSON: #{e}")
+  end
+
+  def update_status_in_json(z, status)
+    path = progress_json_path
+    return unless path
+
+    @json_mutex.synchronize do
+      data = load_json_file || { 'source' => @source_name, 'zooms' => {} }
+      data['zooms'][z.to_s] ||= {}
+      data['zooms'][z.to_s]['status'] = status
+      data['updated_at'] = Time.now.iso8601
+
+      tmp = "#{path}.tmp"
+      File.write(tmp, JSON.generate(data))
+      File.rename(tmp, path)
+    end
+  rescue => e
+    LOGGER.warn("Failed to update status in JSON for zoom #{z}: #{e}")
   end
 
   def scan_zoom_level(z, token)
@@ -481,15 +573,19 @@ class BackgroundTileLoader
   end
 
   def load_progress(z)
+    json_data = load_progress_from_json(z)
+    return json_data if json_data
+
     row = @route[:db][:tile_scan_progress].where(source: @source_name, zoom_level: z).first
     return { x: 0, y: 0 } unless row
 
     @tiles_today = [@tiles_today, row[:tiles_today].to_i].max if row[:last_scan_date] == Date.today.to_s
-
     { x: row[:last_x] || 0, y: row[:last_y] || 0 }
   end
 
   def save_progress(x, y, z)
+    save_progress_to_json(x, y, z)
+
     @route[:db][:tile_scan_progress].insert_conflict(
       target: [:source, :zoom_level],
       update: {
@@ -511,6 +607,12 @@ class BackgroundTileLoader
   end
 
   def load_todays_progress
+    json_total = load_todays_progress_from_json
+    if json_total
+      @tiles_today = json_total
+      return
+    end
+
     today = Date.today.to_s
     rows = @route[:db][:tile_scan_progress]
              .where(source: @source_name, last_scan_date: today)
@@ -533,6 +635,7 @@ class BackgroundTileLoader
 
   def update_status(zoom_level, status)
     @route[:db][:tile_scan_progress].where(source: @source_name, zoom_level: zoom_level).update(status: status)
+    update_status_in_json(zoom_level, status)
   rescue => e
     LOGGER.warn("Failed to update status for zoom #{zoom_level}: #{e}")
   end
@@ -541,12 +644,40 @@ class BackgroundTileLoader
     @route[:db][:tile_scan_progress]
       .where(source: @source_name, status: 'active')
       .update(status: status)
+
+    path = progress_json_path
+    if path
+      @json_mutex.synchronize do
+        data = load_json_file
+        if data
+          data['zooms'].each_value { |z| z['status'] = status if z['status'] == 'active' }
+          data['updated_at'] = Time.now.iso8601
+          tmp = "#{path}.tmp"
+          File.write(tmp, JSON.generate(data))
+          File.rename(tmp, path)
+        end
+      end
+    end
   rescue => e
     LOGGER.warn("Failed to update all statuses: #{e}")
   end
 
   def update_active_status(status)
     @route[:db][:tile_scan_progress].where(source: @source_name, status: 'active').update(status: status)
+
+    path = progress_json_path
+    if path
+      @json_mutex.synchronize do
+        data = load_json_file
+        if data
+          data['zooms'].each_value { |z| z['status'] = status if z['status'] == 'active' }
+          data['updated_at'] = Time.now.iso8601
+          tmp = "#{path}.tmp"
+          File.write(tmp, JSON.generate(data))
+          File.rename(tmp, path)
+        end
+      end
+    end
   rescue => e
     LOGGER.warn("Failed to update active status: #{e}")
   end
@@ -566,18 +697,26 @@ class BackgroundTileLoader
         LOGGER.info("Reset #{existing[:status]} status for zoom #{z} of #{@source_name} on startup")
       elsif existing && existing[:status] == 'source_unavailable'
         @route[:db][:tile_scan_progress].where(source: @source_name, zoom_level: z).update(status: 'stopped')
+        update_status_in_json(z, 'stopped')
         LOGGER.info("Reset source_unavailable status (keeping coordinates) for zoom #{z} of #{@source_name} on startup")
       else
+        json_zoom = @json_mutex.synchronize { load_json_file&.dig('zooms', z.to_s) }
+        saved_x = json_zoom&.dig('last_x') || 0
+        saved_y = json_zoom&.dig('last_y') || 0
+        saved_date = json_zoom&.dig('last_scan_date')
+        saved_status = json_zoom&.dig('status') || 'waiting'
+        restore_status = ['completed', 'stopped'].include?(saved_status) ? saved_status : 'waiting'
+
         @route[:db][:tile_scan_progress].insert_conflict(
           target: [:source, :zoom_level]
         ).insert(
           source: @source_name,
           zoom_level: z,
-          last_x: 0,
-          last_y: 0,
-          tiles_today: 0,
-          last_scan_date: nil,
-          status: 'waiting'
+          last_x: saved_x,
+          last_y: saved_y,
+          tiles_today: json_zoom&.dig('tiles_today') || 0,
+          last_scan_date: saved_date,
+          status: restore_status
         )
       end
     end
@@ -622,6 +761,23 @@ class BackgroundTileLoader
       last_y: 0,
       status: 'waiting'
     )
+
+    path = progress_json_path
+    if path
+      @json_mutex.synchronize do
+        data = load_json_file || { 'source' => @source_name, 'zooms' => {} }
+        data['zooms'][z.to_s] = (data['zooms'][z.to_s] || {}).merge(
+          'last_x' => 0,
+          'last_y' => 0,
+          'status' => 'waiting'
+        )
+        data['updated_at'] = Time.now.iso8601
+        tmp = "#{path}.tmp"
+        File.write(tmp, JSON.generate(data))
+        File.rename(tmp, path)
+      end
+    end
+
     LOGGER.info("Reset progress for zoom #{z} of #{@source_name}")
   rescue => e
     LOGGER.warn("Failed to reset progress for zoom #{z}: #{e}")
