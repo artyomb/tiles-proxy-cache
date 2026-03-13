@@ -554,8 +554,8 @@ class BackgroundTileLoader
       existing = @route[:db][:tile_scan_progress].where(source: @source_name, zoom_level: z).first
       
       if existing && ['error', 'critical_error'].include?(existing[:status])
-        reset_zoom_progress(z)
-        LOGGER.info("Reset #{existing[:status]} status for zoom #{z} of #{@source_name} on startup")
+        @route[:db][:tile_scan_progress].where(source: @source_name, zoom_level: z).update(status: 'waiting')
+        LOGGER.info("Reset #{existing[:status]} status for zoom #{z} of #{@source_name} on startup (keeping progress)")
       elsif existing && existing[:status] == 'source_unavailable'
         @route[:db][:tile_scan_progress].where(source: @source_name, zoom_level: z).update(status: 'stopped')
         LOGGER.info("Reset source_unavailable status (keeping coordinates) for zoom #{z} of #{@source_name} on startup")
@@ -596,6 +596,8 @@ class BackgroundTileLoader
       reset_zoom_progress(z)
       false
     elsif ['active', 'stopped', 'waiting'].include?(current_status)
+      false
+    elsif ['error', 'critical_error'].include?(current_status)
       false
     else
       reset_zoom_progress(z)
