@@ -551,7 +551,10 @@ class BackgroundTileLoader
   end
 
   def tile_exists?(x, y, z)
-    @route[:db][:tiles].where(zoom_level: z, tile_column: x, tile_row: tms_y(z, y)).get(1)
+    @route[:db][:tiles]
+      .where(zoom_level: z, tile_column: x, tile_row: tms_y(z, y))
+      .where(Sequel.lit('generated = 0 OR generated IS NULL'))
+      .get(1)
   end
 
   def miss_permanent?(x, y, z)
@@ -725,7 +728,10 @@ class BackgroundTileLoader
   end
 
   def cached_tiles_count(z)
-    @route[:db][:tiles].where(zoom_level: z).where(Sequel.lit('generated = 0 OR generated IS NULL')).count
+    @route[:db][:tiles]
+      .where(zoom_level: z)
+      .exclude(generated: -1)
+      .count
   end
 
   def zoom_complete?(z)
