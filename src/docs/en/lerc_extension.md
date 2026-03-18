@@ -145,7 +145,7 @@ The extension is integrated into the main tile caching service (`config.ru`) and
 ### Optimizations
 - Memory pre-allocation (`reserve()`)
 - Direct pointer arithmetic in critical loops
-- Aggressive compiler flags (`-O3`, `-march=native`, `-flto`)
+- Compiler flags (`-O3`; optional arch/LTO flags depending on build)
 - RTTI disabled for size reduction
 
 ### Limitations
