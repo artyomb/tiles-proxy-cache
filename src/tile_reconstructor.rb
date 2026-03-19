@@ -465,22 +465,19 @@ class TileReconstructor
     encoding = route.dig(:metadata, :encoding)
     gap_filling = route[:gap_filling]
     minzoom = route[:minzoom]
+    output_format_config = gap_filling[:output_format].transform_keys(&:to_sym)
+    format = output_format_config[:type]
 
     if TERRAIN_ENCODINGS.include?(encoding)
       method = gap_filling[:terrain_method]
-      output_format_config = gap_filling[:output_format]
-      format = output_format_config[:type]
-
       args = { encoding: encoding, method: method, format: format }
       args[:effort] = output_format_config[:effort] || 4 if format == 'webp'
 
       { method: :downsample_terrain_tiles, args: args, minzoom: minzoom }
     else
-      output_format_config = gap_filling[:output_format]
-      format = output_format_config[:type]
       kernel = gap_filling[:raster_method].to_sym
-
-      vips_options = output_format_config.reject { |k, _| k == :type || k == 'type' }
+      vips_options = output_format_config.except(:type)
+      vips_options[:Q] = vips_options.delete(:quality) if format == 'webp' && vips_options.key?(:quality)
 
       { method: :downsample_raster_tiles, args: { format: format, kernel: kernel, **vips_options }, minzoom: minzoom }
     end
