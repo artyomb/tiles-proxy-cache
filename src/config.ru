@@ -304,8 +304,20 @@ def create_http_client(uri, route)
   end
 end
 
+def normalize_output_format(route, route_name)
+  raw_format = route[:output_format]
+  return nil if raw_format.nil?
+
+  format = raw_format.to_s.downcase
+  return format if %w[png webp].include?(format)
+
+  raise ArgumentError, "Invalid output_format '#{format}' for source '#{route_name}'. Supported: png, webp"
+end
+
 configure do
   ROUTES.each do |_name, route|
+    route[:output_format] = normalize_output_format(route, _name)
+
     uri = URI.parse route[:target].gsub(/[{}]/, '_')
 
     client = create_http_client(uri, route)
@@ -515,6 +527,7 @@ helpers do
     copy_headers_from_response(response.headers)
     
     data = response.body
+    current_format = detect_image_format(response.headers['content-type'])
     
     if response.headers['content-encoding']&.include?('gzip')
       data = Zlib::GzipReader.new(StringIO.new(data)).read rescue data
@@ -533,27 +546,28 @@ helpers do
         
         headers['Content-Type'] = 'image/png'
         data = decoded_data
+        current_format = 'png'
       rescue => e
         return { error: true, reason: 'lerc_decode_error', details: build_error_details(response, "LERC decode error: #{e.message}"), status: 500, body: data }
       end
     end
     
+    target_format = route[:output_format]
+
     if route[:downsample_config]&.dig(:enabled) && data && !data.empty?
       begin
         encoding = route[:metadata][:encoding]
         target_size = route[:downsample_config][:target_size]
         method = route[:downsample_config][:method]
-        source_format = route[:metadata][:format]
-        output_format = route[:metadata][:format]
         
-        if source_format == 'webp'
+        if current_format == 'webp'
           img = Vips::Image.new_from_buffer(data, '')
           data = img.write_to_buffer('.png')
         end
         
         data = TerrainDownsampleFFI.downsample_png(data, target_size, encoding, method)
         
-        if output_format == 'webp'
+        if target_format == 'webp'
           data = convert_to_webp(data, route)
           headers['Content-Type'] = 'image/webp'
         else
@@ -562,13 +576,16 @@ helpers do
       rescue => e
         return { error: true, reason: 'image_processing_error', details: build_error_details(response, "Image processing error: #{e.message}"), status: 500, body: data }
       end
-    elsif route[:webp_config] && route[:source_format] == 'png'
+    elsif target_format == 'webp'
       begin
         data = convert_to_webp(data, route)
         headers['Content-Type'] = 'image/webp'
       rescue => e
         return { error: true, reason: 'webp_conversion_error', details: build_error_details(response, "WebP conversion error: #{e.message}"), status: 500, body: data }
       end
+    elsif target_format == 'png' && current_format != 'png'
+      data = Vips::Image.new_from_buffer(data, '').write_to_buffer('.png')
+      headers['Content-Type'] = 'image/png'
     end
     
     { error: false, data: data }
@@ -609,12 +626,28 @@ helpers do
   end
 
   otl_def def convert_to_webp(data, route)
-    webp_config = route[:webp_config]
+    webp_config = route[:webp_config] || {}
     lossless = webp_config[:lossless].nil? ? true : webp_config[:lossless]
-    params = lossless ? { lossless: true, effort: webp_config[:effort]} : { lossless: false, Q: webp_config[:quality]}
+    params = if lossless
+               effort = webp_config[:effort]
+               raise ArgumentError, "webp_config.effort is required when lossless=true" if effort.nil?
+               { lossless: true, effort: effort }
+             else
+               quality = webp_config[:quality]
+               raise ArgumentError, "webp_config.quality is required when lossless=false" if quality.nil?
+               { lossless: false, Q: quality }
+             end
 
     otl_current_span { _1.add_attributes params }
     Vips::Image.new_from_buffer(data, '').write_to_buffer('.webp', **params)
+  end
+
+  def detect_image_format(content_type)
+    type = content_type.to_s.downcase
+    return 'webp' if type.include?('image/webp')
+    return 'png' if type.include?('image/png')
+
+    nil
   end
 
   def build_request_headers(route)

@@ -629,11 +629,43 @@ class BackgroundTileLoader
   end
 
   def convert_to_webp(data)
-    webp_config = @route[:webp_config]
+    webp_config = @route[:webp_config] || {}
     lossless = webp_config[:lossless].nil? ? true : webp_config[:lossless]
-    params = lossless ? { lossless: true, effort: webp_config[:effort]} : { lossless: false, Q: webp_config[:quality]}
+    params = if lossless
+               effort = webp_config[:effort]
+               raise ArgumentError, "webp_config.effort is required when lossless=true" if effort.nil?
+               { lossless: true, effort: effort }
+             else
+               quality = webp_config[:quality]
+               raise ArgumentError, "webp_config.quality is required when lossless=false" if quality.nil?
+               { lossless: false, Q: quality }
+             end
     
     Vips::Image.new_from_buffer(data, '').write_to_buffer('.webp', **params)
+  end
+
+  def output_format
+    return @output_format if instance_variable_defined?(:@output_format)
+
+    raw_format = @route[:output_format]
+    @output_format = normalize_output_format(raw_format)
+  end
+
+  def normalize_output_format(raw_format)
+    return nil if raw_format.nil?
+
+    format = raw_format.to_s.downcase
+    raise ArgumentError, "Invalid output_format '#{format}' for #{@source_name}. Supported: png, webp" unless %w[png webp].include?(format)
+
+    format
+  end
+
+  def detect_image_format(content_type)
+    type = content_type.to_s.downcase
+    return 'webp' if type.include?('image/webp')
+    return 'png' if type.include?('image/png')
+
+    nil
   end
 
   def update_status(zoom_level, status)
@@ -818,6 +850,7 @@ class BackgroundTileLoader
       end
 
       data = response.body
+      current_format = detect_image_format(response.headers['content-type'])
 
       if response.headers['content-encoding']&.include?('gzip')
         data = Zlib::GzipReader.new(StringIO.new(data)).read rescue data
@@ -846,6 +879,7 @@ class BackgroundTileLoader
             }
           end
           data = decoded
+          current_format = 'png'
         rescue => e
           return {
             success: false,
@@ -868,22 +902,22 @@ class BackgroundTileLoader
         end
       end
 
+      target_format = output_format
+
       if @route[:downsample_config]&.dig(:enabled) && data && !data.empty?
         begin
           encoding = @route[:metadata][:encoding]
           target_size = @route[:downsample_config][:target_size]
           method = @route[:downsample_config][:method]
-          source_format = @route[:metadata][:format]
-          output_format = @route[:metadata][:format]
 
-          if source_format == 'webp'
+          if current_format == 'webp'
             img = Vips::Image.new_from_buffer(data, '')
             data = img.write_to_buffer('.png')
           end
 
           data = TerrainDownsampleFFI.downsample_png(data, target_size, encoding, method)
 
-          if output_format == 'webp'
+          if target_format == 'webp'
             data = convert_to_webp(data)
           end
         rescue => e
@@ -895,7 +929,7 @@ class BackgroundTileLoader
             body: data
           }
         end
-      elsif @route[:webp_config] && @route[:source_format] == 'png'
+      elsif target_format == 'webp'
         begin
           data = convert_to_webp(data)
         rescue => e
@@ -907,6 +941,8 @@ class BackgroundTileLoader
             body: data
           }
         end
+      elsif target_format == 'png' && current_format != 'png'
+        data = Vips::Image.new_from_buffer(data, '').write_to_buffer('.png')
       end
 
       { success: true, data: data }
