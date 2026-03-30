@@ -3,9 +3,39 @@
 require_relative 'geometry_tile_calculator'
 
 module ViewHelpers
-  def get_tiles_size(route)
-    db = route[:db]
-    db.table_exists?(:tiles) ? (db[:tiles].sum(Sequel.function(:length, :tile_data)) || 0) : 0
+  DB_SIDECAR_SUFFIXES = ['-wal', '-shm'].freeze
+
+  def get_tiles_size(route) = route_storage_files(route).sum { _1[:size] }
+
+  def route_storage_files(route)
+    mbtiles_related_paths(route[:mbtiles_file]).map do |path|
+      exists = File.exist?(path)
+      {
+        path: path,
+        name: File.basename(path),
+        exists: exists,
+        size: exists ? File.size(path) : 0
+      }
+    end
+  end
+
+  def progress_json_path(route)
+    mbtiles_path = resolve_mbtiles_path(route[:mbtiles_file])
+    mbtiles_path&.end_with?('.mbtiles') ? mbtiles_path.sub(/\.mbtiles$/, '.progress.json') : nil
+  end
+
+  def format_bytes(bytes)
+    units = %w[B KB MB GB TB]
+    size = bytes.to_f
+    unit_index = 0
+
+    while size >= 1024 && unit_index < units.length - 1
+      size /= 1024.0
+      unit_index += 1
+    end
+
+    precision = unit_index.zero? ? 0 : 2
+    "#{size.round(precision)} #{units[unit_index]}"
   end
 
   def tiles_per_zoom(z, route = nil)
@@ -304,5 +334,25 @@ module ViewHelpers
     end
 
     style.to_json
+  end
+
+  private
+
+  def mbtiles_related_paths(mbtiles_file)
+    mbtiles_path = resolve_mbtiles_path(mbtiles_file)
+    return [] unless mbtiles_path
+    return [mbtiles_path] unless mbtiles_path.end_with?('.mbtiles')
+
+    [mbtiles_path, *DB_SIDECAR_SUFFIXES.map { "#{mbtiles_path}#{_1}" }, mbtiles_path.sub(/\.mbtiles$/, '.progress.json')]
+  end
+
+  def resolve_mbtiles_path(mbtiles_file)
+    return nil if mbtiles_file.nil? || mbtiles_file.to_s.strip.empty?
+
+    path = mbtiles_file.to_s
+    return path if path.start_with?('/')
+
+    candidates = [File.expand_path(path, Dir.pwd), File.expand_path(path, __dir__)].uniq
+    candidates.find { |candidate| File.exist?(candidate) } || candidates.first
   end
 end

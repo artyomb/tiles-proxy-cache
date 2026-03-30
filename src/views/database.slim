@@ -134,6 +134,7 @@ html
 
       .section
         .section-title Statistics
+        - storage_files = route_storage_files(@route)
         .stats-grid
           .stat-box
             .stat-number = @route[:db][:tiles].count
@@ -142,8 +143,29 @@ html
             .stat-number = @route[:db][:misses].count
             .stat-desc Cache Misses
           .stat-box
-            .stat-number = "#{((@route[:db][:tiles].sum(Sequel.function(:length, :tile_data)) || 0) / 1024.0 / 1024.0).round(2)} MB"
+            .stat-number = format_bytes(get_tiles_size(@route))
             .stat-desc Cache Size
+
+      .section
+        .section-title Storage Files
+        - if storage_files.empty?
+          .json-missing mbtiles_file is not configured.
+        - else
+          .table-container
+            table
+              thead
+                tr
+                  th File
+                  th Path
+                  th Size
+                  th Status
+              tbody
+                - storage_files.each do |file|
+                  tr
+                    td = file[:name]
+                    td = file[:path]
+                    td = format_bytes(file[:size])
+                    td = file[:exists] ? 'exists' : 'missing'
 
       .main-layout
         .sidebar
@@ -187,7 +209,7 @@ html
                 - if page < total_pages
                   a.pagination-btn href=url_for("/db?source=#{@source}&table=#{current_table}&page=#{page+1}") Next →
 
-      - json_path = @route[:mbtiles_file]&.sub(/\.mbtiles$/, '.progress.json')
+      - json_path = progress_json_path(@route)
       - json_content = json_path && File.exist?(json_path) ? File.read(json_path) : nil
       .section
         .section-title Progress JSON
