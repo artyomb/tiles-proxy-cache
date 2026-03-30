@@ -442,6 +442,7 @@ helpers do
       tile = get_cached_tile(route, z, x, tms)
       return blob_to_string(tile[:tile_data]) if tile
 
+      validation_enabled = route.dig(:validation, :enabled)
       result = fetch_http(route:, x: x, y: y, z: z)
 
       if result[:error]
@@ -449,9 +450,19 @@ helpers do
         return nil
       end
 
-      unless route.dig(:validation, :enabled)
-        save_tile_to_db(route, z, x, tms, result[:data])
-        return result[:data]
+      unless validation_enabled
+        data = result[:data]
+        if route[:output_format] == 'webp'
+          begin
+            data = convert_to_webp(data, route)
+          rescue => e
+            DatabaseManager.record_miss(route, z, x, y, 'webp_conversion_error', "WebP conversion error: #{e.message}", 500, nil)
+            return nil
+          end
+        end
+
+        save_tile_to_db(route, z, x, tms, data)
+        return data
       end
 
       check_transparency = route.dig(:validation, :check_transparency)
@@ -464,6 +475,15 @@ helpers do
           DatabaseManager.record_miss(route, z, x, y, validation_result.to_s, "Tile is #{validation_result}", 200, nil)
           nil
         else
+          if route[:output_format] == 'webp'
+            begin
+              result[:data] = convert_to_webp(result[:data], route)
+            rescue => e
+              DatabaseManager.record_miss(route, z, x, y, 'webp_conversion_error', "WebP conversion error after validation: #{e.message}", 500, nil)
+              return nil
+            end
+          end
+
           save_tile_to_db(route, z, x, tms, result[:data])
           result[:data]
         end
@@ -567,27 +587,17 @@ helpers do
         
         data = TerrainDownsampleFFI.downsample_png(data, target_size, encoding, method)
         
-        if target_format == 'webp'
-          data = convert_to_webp(data, route)
-          headers['Content-Type'] = 'image/webp'
-        else
+        if target_format != 'webp'
           headers['Content-Type'] = 'image/png'
         end
       rescue => e
         return { error: true, reason: 'image_processing_error', details: build_error_details(response, "Image processing error: #{e.message}"), status: 500, body: data }
       end
-    elsif target_format == 'webp'
-      begin
-        data = convert_to_webp(data, route)
-        headers['Content-Type'] = 'image/webp'
-      rescue => e
-        return { error: true, reason: 'webp_conversion_error', details: build_error_details(response, "WebP conversion error: #{e.message}"), status: 500, body: data }
-      end
     elsif target_format == 'png' && current_format != 'png'
       data = Vips::Image.new_from_buffer(data, '').write_to_buffer('.png')
       headers['Content-Type'] = 'image/png'
     end
-    
+
     { error: false, data: data }
   end
 
