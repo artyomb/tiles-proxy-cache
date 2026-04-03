@@ -245,10 +245,7 @@ end
 get "/api/autoscan/:source/status" do
   content_type :json
   
-  _, route = validate_and_get_route(params[:source])
-  loader = route[:autoscan_loader]
-  
-  halt 404, { error: "Autoscan not configured" }.to_json unless loader
+  route, loader = autoscan_route_and_loader(params[:source])
   
   start_zoom = route[:minzoom]
   end_zoom = route.dig(:autoscan, :max_scan_zoom)
@@ -265,11 +262,7 @@ end
 post "/api/autoscan/:source/reset" do
   content_type :json
   
-  _, route = validate_and_get_route(params[:source])
-  loader = route[:autoscan_loader]
-  
-  halt 404, { error: "Autoscan not configured" }.to_json unless loader
-  halt 400, { error: "Autoscan not enabled" }.to_json unless loader.enabled?
+  route, loader = autoscan_route_and_loader(params[:source], require_enabled: true)
   
   zoom_level = params[:zoom_level]
   if zoom_level && zoom_level != 'all'
@@ -288,6 +281,15 @@ post "/api/autoscan/:source/reset" do
   else
     halt 500, { error: result[:error] }.to_json
   end
+end
+
+post "/api/autoscan/:source/restart" do
+  content_type :json
+
+  _, loader = autoscan_route_and_loader(params[:source], require_enabled: true)
+  halt 500, { error: "Failed to restart autoscan" }.to_json unless loader.restart
+
+  { success: true, running: loader.running? }.to_json
 end
 
 def create_http_client(uri, route)
@@ -398,6 +400,16 @@ helpers do
     halt 404, "Source not found" unless route
 
     [source, route]
+  end
+
+  def autoscan_route_and_loader(source, require_enabled: false)
+    _, route = validate_and_get_route(source)
+    loader = route[:autoscan_loader]
+
+    halt 404, { error: "Autoscan not configured" }.to_json unless loader
+    halt 400, { error: "Autoscan not enabled" }.to_json if require_enabled && !loader.enabled?
+
+    [route, loader]
   end
 
   def get_cached_tile(route, z, x, tms)
