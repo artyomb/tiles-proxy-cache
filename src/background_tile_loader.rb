@@ -17,6 +17,10 @@ class BackgroundTileLoader
   TRANSIENT_STATUS_CODES = [429, 500, 502, 503, 504].freeze
   CRITICAL_STATUS_CODES = [401, 403].freeze
   PERMANENT_STATUS_CODES = [204, 400, 404].freeze
+  PERMANENT_REASONS = %w[
+    webp_conversion_error
+    image_processing_error
+  ].freeze
 
   def initialize(route, source_name)
     @route = route
@@ -1012,6 +1016,7 @@ class BackgroundTileLoader
   end
 
   def classify_error(status, reason)
+    return :permanent if PERMANENT_REASONS.include?(reason.to_s)
     return :critical if CRITICAL_STATUS_CODES.include?(status)
     return :permanent if PERMANENT_STATUS_CODES.include?(status)
     return :permanent if reason&.start_with?('permanent:')
