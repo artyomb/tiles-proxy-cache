@@ -10,6 +10,7 @@ require 'vips'
 require 'zlib'
 require 'stringio'
 require_relative 'view_helpers'
+require_relative 'stats_jobs'
 require_relative 'metadata_manager'
 require_relative 'background_tile_loader'
 require_relative 'database_manager'
@@ -91,6 +92,7 @@ ROUTES = Dir["#{CONFIG_FOLDER}/*.{yaml,yml}"].map { YAML.load_file(_1, symbolize
 
 SAFE_KEYS = %i[path target minzoom maxzoom mbtiles_file miss_timeout metadata style_metadata autoscan]
 DB_SAFE_KEYS = SAFE_KEYS + %i[db validation]
+STATS_JOB_MANAGER = StatsJobManager.new(job_factory: -> { StatsAggregator.new(routes: ROUTES).call })
 
 require_relative 'ext/lerc_extension'
 require_relative 'ext/terrain_downsample_extension'
@@ -104,35 +106,37 @@ get "/" do
 end
 
 get "/api/stats" do
-  content_type :json
-  
-  route_stats = {}
-  threads = []
-  mutex = Mutex.new
-  
-  ROUTES.each do |name, route|
-    threads << Thread.new do
-      stats = collect_source_stats(route, name.to_s)
-      mutex.synchronize do
-        route_stats[name.to_s] = stats
-      end
-    end
-  end
-  
-  threads.each(&:join)
+  start_stats_job_response
+end
 
-  total_tiles = route_stats.values.sum { |stats| stats[:tiles_count] }
-  total_misses = route_stats.values.sum { |stats| stats[:misses_count] }
-  total_cache_size = route_stats.values.sum { |stats| stats[:cache_size] }
-  
-  {
-    route_stats: route_stats,
-    totals: {
-      tiles: total_tiles,
-      misses: total_misses,
-      cache_size: total_cache_size
-    }
-  }.to_json
+post "/api/stats/jobs" do
+  start_stats_job_response
+end
+
+get "/api/stats/jobs/:job_id" do
+  content_type :json
+
+  job = STATS_JOB_MANAGER.fetch(params[:job_id])
+  halt 404, { error: "Stats job not found" }.to_json unless job
+
+  case job[:status]
+  when 'running'
+    status 202
+    job.slice(:job_id, :status, :started_at).to_json
+  when 'completed'
+    status 200
+    job[:result].merge(
+      job_id: job[:job_id],
+      status: job[:status],
+      started_at: job[:started_at],
+      finished_at: job[:finished_at]
+    ).to_json
+  when 'failed', 'timed_out'
+    status 200
+    job.slice(:job_id, :status, :started_at, :finished_at, :error).to_json
+  else
+    halt 404, { error: "Stats job #{job[:status]}", status: job[:status] }.to_json
+  end
 end
 
 get "/db" do
@@ -375,6 +379,15 @@ end
 
 helpers do
   include ViewHelpers
+
+  def start_stats_job_response
+    content_type :json
+    status 202
+    STATS_JOB_MANAGER.start.slice(:job_id, :status, :started_at).to_json
+  rescue => e
+    status 500
+    { error: "Failed to start stats job", details: e.message }.to_json
+  end
 
   def base_path
     request.script_name
@@ -737,6 +750,8 @@ helpers do
 end
 
 at_exit do
+  STATS_JOB_MANAGER.shutdown if defined?(STATS_JOB_MANAGER)
+
   ROUTES.each do |_name, route|
     route[:autoscan_loader]&.stop_completely
     

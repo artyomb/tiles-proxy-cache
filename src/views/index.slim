@@ -211,46 +211,81 @@ javascript:
         btn.disabled = false;
       });
   };
+
+  const renderStats = (data) => {
+    ['total-tiles', 'total-misses', 'total-cache-size'].forEach((id, i) => {
+      const el = document.getElementById(id);
+      el.textContent = i === 2 ? (data.totals.cache_size / 1024 / 1024).toFixed(2) + ' MB' : data.totals[id.replace('total-', '')];
+      el.classList.remove('loading');
+    });
+
+    Object.keys(data.route_stats).forEach(src => {
+      const stats = data.route_stats[src];
+      ['tiles', 'misses', 'size', 'coverage'].forEach(key => {
+        const el = document.getElementById(`${key}-${src}`);
+        el.textContent = key === 'size' ? (stats.cache_size / 1024 / 1024).toFixed(2) + ' MB' :
+                         key === 'coverage' ? `${stats.coverage_percentage}%` : stats[`${key}_count`];
+        el.classList.remove('loading');
+      });
+
+      const chart = document.getElementById(`chart-${src}`);
+      if (chart && stats.coverage_data) createCoverageChart(`chart-${src}`, stats.coverage_data);
+    });
+  };
+
+  const showStatsError = (message) => {
+    console.error('Error loading stats:', message);
+    document.querySelectorAll('.loading').forEach(el => {
+      el.textContent = 'Error';
+      el.classList.remove('loading');
+      el.classList.add('error');
+    });
+    showToast(message, true);
+  };
+
+  const loadReconstructorStatuses = () => {
+    document.querySelectorAll('[id^="reconstruct-btn-"]').forEach(btn => {
+      const src = btn.id.replace('reconstruct-btn-', '');
+      fetch(`${BASE_PATH}/api/reconstructor/${src}/status`)
+        .then(r => r.json())
+        .then(d => { if (d.running) { setReconstructControls(src, true); pollStatus(src); } })
+        .catch(() => {});
+    });
+  };
+
+  const pollStatsJob = (jobId) => {
+    fetch(`${BASE_PATH}/api/stats/jobs/${jobId}`)
+      .then(async response => ({ statusCode: response.status, data: await response.json() }))
+      .then(({ statusCode, data }) => {
+        if (statusCode === 202 && data.status === 'running') {
+          setTimeout(() => pollStatsJob(jobId), 1500);
+          return;
+        }
+
+        if (statusCode === 200 && data.status === 'completed') {
+          renderStats(data);
+          return;
+        }
+
+        throw new Error(data.error || `Stats job ${data.status || 'failed'}`);
+      })
+      .catch(err => showStatsError(err.message));
+  };
+
+  const startStatsJob = () => {
+    fetch(`${BASE_PATH}/api/stats/jobs`, { method: 'POST' })
+      .then(async response => ({ statusCode: response.status, data: await response.json() }))
+      .then(({ statusCode, data }) => {
+        if (statusCode !== 202 || data.status !== 'running' || !data.job_id) {
+          throw new Error(data.error || 'Failed to start stats job');
+        }
+
+        pollStatsJob(data.job_id);
+      })
+      .catch(err => showStatsError(err.message));
+  };
   
   document.addEventListener('DOMContentLoaded', () => {
-    setTimeout(() => {
-      fetch(`${BASE_PATH}/api/stats`)
-        .then(r => r.json())
-        .then(data => {
-          ['total-tiles', 'total-misses', 'total-cache-size'].forEach((id, i) => {
-            const el = document.getElementById(id);
-            el.textContent = i === 2 ? (data.totals.cache_size / 1024 / 1024).toFixed(2) + ' MB' : data.totals[id.replace('total-', '')];
-            el.classList.remove('loading');
-          });
-          
-          Object.keys(data.route_stats).forEach(src => {
-            const s = data.route_stats[src];
-            ['tiles', 'misses', 'size', 'coverage'].forEach(k => {
-              const el = document.getElementById(`${k}-${src}`);
-              el.textContent = k === 'size' ? (s.cache_size / 1024 / 1024).toFixed(2) + ' MB' : 
-                               k === 'coverage' ? s.coverage_percentage + '%' : s[k + '_count'];
-              el.classList.remove('loading');
-            });
-            
-            const chart = document.getElementById(`chart-${src}`);
-            if (chart && s.coverage_data) createCoverageChart(`chart-${src}`, s.coverage_data);
-          });
-          
-          document.querySelectorAll('[id^="reconstruct-btn-"]').forEach(btn => {
-            const src = btn.id.replace('reconstruct-btn-', '');
-            fetch(`${BASE_PATH}/api/reconstructor/${src}/status`)
-              .then(r => r.json())
-              .then(d => { if (d.running) { setReconstructControls(src, true); pollStatus(src); } })
-              .catch(() => {});
-          });
-        })
-        .catch(err => {
-          console.error('Error loading stats:', err);
-          document.querySelectorAll('.loading').forEach(el => {
-            el.textContent = 'Error';
-            el.classList.remove('loading');
-            el.classList.add('error');
-          });
-        });
-    }, 0);
+    loadReconstructorStatuses();
+    startStatsJob();
   });
