@@ -144,7 +144,7 @@ GEM
     json (2.19.4)
     localhost (1.7.0)
     logger (1.7.0)
-    maplibre-preview (1.4.2)
+    maplibre-preview (1.4.3)
       rack (>= 2.0, < 4.0)
       rackup (>= 1.0, < 3.0)
       sinatra (>= 2.1, < 5.0)
