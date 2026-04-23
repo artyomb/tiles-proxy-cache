@@ -10,4 +10,5 @@ coverage
 AGENTS.md
 **/.knowledge/
 /temp
-
+.playwright-mcp
+.codex
