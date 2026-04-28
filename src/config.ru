@@ -494,7 +494,14 @@ helpers do
       raise "validation.check_transparency must be specified when validation.enabled is true" if check_transparency.nil?
 
       begin
-        validation_result = VipsTileValidator.validate(result[:data], check_transparency: check_transparency)
+        validation_result = otl_span("tile_validation", {
+          route_path: route[:path], z: z, x: x, y: y,
+          bytes: result[:data]&.bytesize.to_i, check_transparency: check_transparency
+        }) do
+          VipsTileValidator.validate(result[:data], check_transparency: check_transparency).tap do |validation|
+            otl_current_span { _1.add_attributes(validation_result: validation.to_s) }
+          end
+        end
 
         if [:transparent, :corrupted].include?(validation_result)
           DatabaseManager.record_miss(route, z, x, y, validation_result.to_s, "Tile is #{validation_result}", 200, nil)
