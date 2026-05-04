@@ -667,7 +667,7 @@ helpers do
     details.join(' | ')
   end
 
-  otl_def def convert_to_webp(data, route)
+  def convert_to_webp(data, route)
     webp_config = route[:webp_config] || {}
     lossless = webp_config[:lossless].nil? ? true : webp_config[:lossless]
     params = if lossless
@@ -680,8 +680,9 @@ helpers do
                { lossless: false, Q: quality }
              end
 
-    otl_current_span { _1.add_attributes params }
-    Vips::Image.new_from_buffer(data, '').write_to_buffer('.webp', **params)
+    otl_span("convert_to_webp", { route_path: route[:path], bytes: data&.bytesize.to_i, **params }) do
+      Vips::Image.new_from_buffer(data, '').write_to_buffer('.webp', **params)
+    end
   end
 
   def detect_image_format(content_type)
