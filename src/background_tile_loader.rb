@@ -542,7 +542,7 @@ class BackgroundTileLoader
       'Accept-Language' => 'en-US,en;q=0.9,ru;q=0.8',
       'Accept-Encoding' => 'gzip, deflate, br',
       'DNT' => '1',
-      'Connection' => 'keep-alive',
+      'Connection' => 'close',
       'Upgrade-Insecure-Requests' => '1',
       'Sec-Fetch-Dest' => 'image',
       'Sec-Fetch-Mode' => 'no-cors',

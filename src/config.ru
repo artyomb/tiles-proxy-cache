@@ -2,7 +2,6 @@ require 'sinatra'
 require 'sequel'
 require 'faraday'
 require 'faraday/retry'
-require 'faraday/net_http_persistent'
 require 'stack-service-base'
 require 'maplibre-preview'
 require 'yaml'
@@ -306,7 +305,7 @@ def create_http_client(uri, route)
     f.request :retry, max: 2, interval: 0.2, backoff_factor: 2
     f.options.timeout = 15
     f.options.open_timeout = 10
-    f.adapter :net_http_persistent, pool_size: 40, idle_timeout: 60
+    f.adapter :net_http
   end
 end
 
@@ -699,7 +698,7 @@ helpers do
       'Accept-Language' => 'en-US,en;q=0.9,ru;q=0.8',
       'Accept-Encoding' => 'gzip, deflate, br',
       'DNT' => '1',
-      'Connection' => 'keep-alive',
+      'Connection' => 'close',
       'Upgrade-Insecure-Requests' => '1',
       'Sec-Fetch-Dest' => 'image',
       'Sec-Fetch-Mode' => 'no-cors',
