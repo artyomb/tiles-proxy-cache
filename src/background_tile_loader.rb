@@ -6,6 +6,7 @@ require 'concurrent-ruby'
 require_relative 'ext/terrain_downsample_extension'
 require_relative 'vips_tile_validator'
 require_relative 'geometry_tile_calculator'
+require_relative 'observability_setup'
 
 class BackgroundTileLoader
   MAX_RETRY_ATTEMPTS = 15
@@ -24,6 +25,7 @@ class BackgroundTileLoader
 
   def initialize(route, source_name)
     @route = route
+    @route[:observability_source] ||= source_name
     @source_name = source_name
     @config = route[:autoscan] || {}
     @tiles_today = 0
@@ -59,7 +61,7 @@ class BackgroundTileLoader
 
         (start_zoom..end_zoom).each { |z| scan_zoom_level(z, token) }
       rescue => e
-        LOGGER.error("Autoscan error for #{@source_name}: #{e}")
+        LOGGER.error("event=autoscan_error source=#{@source_name} error=#{e.message}")
         update_all_statuses('error')
       ensure
         update_active_status('stopped') unless e
@@ -127,7 +129,7 @@ class BackgroundTileLoader
   def reset_progress(zoom_level: nil)
     reset_scope = zoom_level.nil? ? "all_zooms" : "single_zoom"
     otl_span(
-      "reset_progress",
+      "autoscan.reset_progress",
       {
         source: @source_name,
         zoom_level: zoom_level,
@@ -164,7 +166,7 @@ class BackgroundTileLoader
       }
     end
   rescue => e
-    LOGGER.error("Failed to reset progress for #{@source_name}: #{e.message}")
+    LOGGER.error("event=autoscan_reset_error source=#{@source_name} scope=#{reset_scope} error=#{e.message}")
     { success: false, error: e.message }
   end
 
@@ -178,7 +180,7 @@ class BackgroundTileLoader
           @route[:db].run "PRAGMA wal_checkpoint(RESTART)"
         end
       rescue => e
-        LOGGER.warn("WAL checkpoint error: #{e}")
+        LOGGER.warn("event=autoscan_wal_checkpoint_error source=#{@source_name} error=#{e.message}")
       end
     end
     @wal_task.execute
@@ -214,7 +216,7 @@ class BackgroundTileLoader
 
     JSON.parse(File.read(path))
   rescue => e
-    LOGGER.warn("Failed to read progress JSON: #{e}")
+    LOGGER.warn("event=autoscan_progress_json_read_error source=#{@source_name} error=#{e.message}")
     nil
   end
 
@@ -268,7 +270,7 @@ class BackgroundTileLoader
       File.rename(tmp, path)
     end
   rescue => e
-    LOGGER.warn("Failed to save progress to JSON: #{e}")
+    LOGGER.warn("event=autoscan_progress_json_save_error source=#{@source_name} zoom=#{z} error=#{e.message}")
   end
 
   def update_status_in_json(z, status)
@@ -286,11 +288,12 @@ class BackgroundTileLoader
       File.rename(tmp, path)
     end
   rescue => e
-    LOGGER.warn("Failed to update status in JSON for zoom #{z}: #{e}")
+    LOGGER.warn("event=autoscan_progress_json_status_error source=#{@source_name} zoom=#{z} status=#{status} error=#{e.message}")
   end
 
   def scan_zoom_level(z, token)
-    otl_span("scan_zoom_level", {source: @source_name, zoom: z}) do
+    started_at = Observability.monotonic_time
+    otl_span("autoscan.zoom", { source: @source_name, zoom: z }) do |span|
       if zoom_complete?(z)
         LOGGER.info("Zoom #{z} already complete for #{@source_name}")
         update_status(z, 'completed')
@@ -328,15 +331,24 @@ class BackgroundTileLoader
       
       if zoom_complete?(z)
         update_status(z, 'completed')
+        span&.add_attributes(status: 'completed')
         LOGGER.info("Zoom #{z} marked as completed for #{@source_name}")
       else
         expected = expected_tiles_count(z)
         actual_tiles = cached_tiles_count(z)
         errors = @route[:db][:misses].where(zoom_level: z).count
         remaining = expected - actual_tiles - errors
-        LOGGER.error("Zoom #{z} grid scan finished but incomplete for #{@source_name}: actual=#{actual_tiles}, expected=#{expected}, errors=#{errors}, remaining=#{remaining}, running=#{running?}")
+        span&.add_attributes(status: 'incomplete', actual_tiles: actual_tiles, expected: expected, errors: errors, remaining: remaining)
+        LOGGER.error(
+          "event=autoscan_zoom_incomplete source=#{@source_name} zoom=#{z} " \
+          "actual=#{actual_tiles} expected=#{expected} errors=#{errors} " \
+          "remaining=#{remaining} running=#{running?}"
+        )
         update_status(z, 'error')
       end
+    ensure
+      duration_ms = ((Observability.monotonic_time - started_at) * 1000).round
+      LOGGER.info("Autoscan zoom summary source=#{@source_name} zoom=#{z} tiles_today=#{@tiles_today} processed=#{@tiles_processed} duration_ms=#{duration_ms}")
     end
   end
 
@@ -400,11 +412,11 @@ class BackgroundTileLoader
           sleep 0.001
 
         when :source_unavailable
-          LOGGER.error("Stopping scan for #{@source_name} at tile #{z}/#{curr_x}/#{curr_y}")
+          LOGGER.error("event=autoscan_scan_stop source=#{@source_name} reason=source_unavailable z=#{z} x=#{curr_x} y=#{curr_y}")
           return :source_unavailable
 
         when :critical_stop
-          LOGGER.error("Stopping scan for #{@source_name} at tile #{z}/#{curr_x}/#{curr_y}")
+          LOGGER.error("event=autoscan_scan_stop source=#{@source_name} reason=critical_stop z=#{z} x=#{curr_x} y=#{curr_y}")
           return :critical_error
 
         when :cancelled
@@ -451,7 +463,11 @@ class BackgroundTileLoader
         @pending_403_tiles << {x: x, y: y, z: z}
         
         if @consecutive_403_count >= @max_403_for_zoom
-          LOGGER.error("Too many consecutive 403 responses (#{@consecutive_403_count}/#{@max_403_for_zoom}) for #{@source_name} zoom #{z} - treating as critical error")
+          LOGGER.error(
+            "event=autoscan_consecutive_403_limit source=#{@source_name} " \
+            "zoom=#{z} x=#{x} y=#{y} consecutive_403=#{@consecutive_403_count} " \
+            "max_403=#{@max_403_for_zoom}"
+          )
           handle_critical_error(result)
           return :critical_stop
         end
@@ -478,9 +494,16 @@ class BackgroundTileLoader
         delay = calculate_retry_delay(attempts + 1)
 
         if result[:status] == 429
-          LOGGER.warn("Rate limit (429) hit for #{@source_name} at tile #{z}/#{x}/#{y}, retry #{attempts + 1}/#{MAX_RETRY_ATTEMPTS} after #{delay.round(1)}s - consider adjusting daily_limit in config")
+          LOGGER.warn(
+            "event=autoscan_rate_limited source=#{@source_name} z=#{z} x=#{x} y=#{y} " \
+            "retry=#{attempts + 1} max_retries=#{MAX_RETRY_ATTEMPTS} delay_s=#{delay.round(1)}"
+          )
         else
-          LOGGER.warn("Tile #{z}/#{x}/#{y} failed: #{result[:reason]}, retry #{attempts + 1}/#{MAX_RETRY_ATTEMPTS} after #{delay.round(1)}s")
+          LOGGER.warn(
+            "event=autoscan_transient_retry source=#{@source_name} z=#{z} x=#{x} y=#{y} " \
+            "status=#{result[:status]} reason=#{result[:reason]} retry=#{attempts + 1} " \
+            "max_retries=#{MAX_RETRY_ATTEMPTS} delay_s=#{delay.round(1)}"
+          )
         end
 
         sleep(delay)
@@ -524,7 +547,10 @@ class BackgroundTileLoader
           record_permanent_miss(x, y, z, result)
           @tiles_processed += 1
         when :transient
-          LOGGER.warn("Tile #{z}/#{x}/#{y} returned transient error #{result[:status]} on retry - skipping")
+          LOGGER.warn(
+            "event=autoscan_retry_transient_skip source=#{@source_name} z=#{z} x=#{x} y=#{y} " \
+            "status=#{result[:status]} reason=#{result[:reason]}"
+          )
         end
       end
       
@@ -610,7 +636,7 @@ class BackgroundTileLoader
       last_scan_date: Date.today.to_s
     )
   rescue => e
-    LOGGER.warn("Failed to save progress: #{e}")
+    LOGGER.warn("event=autoscan_progress_save_error source=#{@source_name} zoom=#{z} x=#{x} y=#{y} error=#{e.message}")
   end
 
   def load_todays_progress
@@ -676,7 +702,7 @@ class BackgroundTileLoader
     @route[:db][:tile_scan_progress].where(source: @source_name, zoom_level: zoom_level).update(status: status)
     update_status_in_json(zoom_level, status)
   rescue => e
-    LOGGER.warn("Failed to update status for zoom #{zoom_level}: #{e}")
+    LOGGER.warn("event=autoscan_status_update_error source=#{@source_name} zoom=#{zoom_level} status=#{status} error=#{e.message}")
   end
 
   def update_all_statuses(status)
@@ -698,7 +724,7 @@ class BackgroundTileLoader
       end
     end
   rescue => e
-    LOGGER.warn("Failed to update all statuses: #{e}")
+    LOGGER.warn("event=autoscan_status_update_all_error source=#{@source_name} status=#{status} error=#{e.message}")
   end
 
   def update_active_status(status)
@@ -718,7 +744,7 @@ class BackgroundTileLoader
       end
     end
   rescue => e
-    LOGGER.warn("Failed to update active status: #{e}")
+    LOGGER.warn("event=autoscan_active_status_update_error source=#{@source_name} status=#{status} error=#{e.message}")
   end
 
   def initialize_zoom_progress
@@ -760,7 +786,7 @@ class BackgroundTileLoader
       end
     end
   rescue => e
-    LOGGER.warn("Failed to initialize zoom progress: #{e}")
+    LOGGER.warn("event=autoscan_progress_init_error source=#{@source_name} error=#{e.message}")
   end
 
   def cached_tiles_count(z)
@@ -822,35 +848,43 @@ class BackgroundTileLoader
 
     LOGGER.info("Reset progress for zoom #{z} of #{@source_name}")
   rescue => e
-    LOGGER.warn("Failed to reset progress for zoom #{z}: #{e}")
+    LOGGER.warn("event=autoscan_zoom_progress_reset_error source=#{@source_name} zoom=#{z} error=#{e.message}")
   end
 
   def perform_tile_fetch(x, y, z)
+    started_at = Observability.monotonic_time
+    wall_started_at = Time.now.utc
     target_url = @route[:target].gsub('{z}', z.to_s).gsub('{x}', x.to_s).gsub('{y}', y.to_s)
     target_url += "?#{URI.encode_www_form(@route[:query_params])}" if @route[:query_params]
     headers = get_headers
 
     begin
-      response = @route[:client].get(target_url, nil, headers)
+      response, duration_ms, upstream_started_at, upstream_finished_at = Observability.measure_duration do
+        @route[:client].get(target_url, nil, headers)
+      end
 
       if response.status == 204
-        return {
+        result = {
           success: false,
           status: 204,
           reason: 'http_204',
           details: 'HTTP 204 No Content (tile does not exist)',
           body: nil
         }
+        observe_upstream_fetch_result(result, response, duration_ms, z, x, y, started_at: upstream_started_at, finished_at: upstream_finished_at)
+        return result
       end
 
       unless response.success?
-        return {
+        result = {
           success: false,
           status: response.status,
           reason: 'http_error',
           details: "HTTP #{response.status}",
           body: response.body
         }
+        observe_upstream_fetch_result(result, response, duration_ms, z, x, y, started_at: upstream_started_at, finished_at: upstream_finished_at)
+        return result
       end
 
       data = response.body
@@ -862,47 +896,55 @@ class BackgroundTileLoader
 
       if @route[:source_format] == 'lerc'
         if response.headers['content-type']&.include?('text/html')
-          return {
+          result = {
             success: false,
             status: 404,
             reason: 'arcgis_html_error',
             details: 'ArcGIS returned HTML error page',
             body: data
           }
+          observe_upstream_fetch_result(result, response, duration_ms, z, x, y, started_at: upstream_started_at, finished_at: upstream_finished_at)
+          return result
         end
 
         begin
           decoded = LercFFI.lerc_to_mapbox_png(data)
           if decoded.nil?
-            return {
+            result = {
               success: false,
               status: 404,
               reason: 'arcgis_nodata',
               details: 'LERC tile has no valid pixels (empty tile)',
               body: data
             }
+            observe_upstream_fetch_result(result, response, duration_ms, z, x, y, started_at: upstream_started_at, finished_at: upstream_finished_at)
+            return result
           end
           data = decoded
           current_format = 'png'
         rescue => e
-          return {
+          result = {
             success: false,
             status: 500,
             reason: 'lerc_decode_error',
             details: "LERC decode error: #{e.message}",
             body: data
           }
+          observe_upstream_fetch_result(result, response, duration_ms, z, x, y, started_at: upstream_started_at, finished_at: upstream_finished_at, error_class: e.class.name, error: e.message)
+          return result
         end
       else
         content_type = response.headers['content-type']
         unless content_type&.include?('image/')
-          return {
+          result = {
             success: false,
             status: 200,
             reason: 'invalid_content_type',
             details: "Content-Type: #{content_type}",
             body: data
           }
+          observe_upstream_fetch_result(result, response, duration_ms, z, x, y, started_at: upstream_started_at, finished_at: upstream_finished_at)
+          return result
         end
       end
 
@@ -925,40 +967,79 @@ class BackgroundTileLoader
             data = convert_to_webp(data)
           end
         rescue => e
-          return {
+          result = {
             success: false,
             status: 500,
             reason: 'image_processing_error',
             details: "Image processing error: #{e.message}",
             body: data
           }
+          observe_upstream_fetch_result(result, response, duration_ms, z, x, y, started_at: upstream_started_at, finished_at: upstream_finished_at, error_class: e.class.name, error: e.message)
+          return result
         end
       elsif target_format == 'webp'
         begin
           data = convert_to_webp(data)
         rescue => e
-          return {
+          result = {
             success: false,
             status: 500,
             reason: 'webp_conversion_error',
             details: "WebP conversion error: #{e.message}",
             body: data
           }
+          observe_upstream_fetch_result(result, response, duration_ms, z, x, y, started_at: upstream_started_at, finished_at: upstream_finished_at, error_class: e.class.name, error: e.message)
+          return result
         end
       elsif target_format == 'png' && current_format != 'png'
         data = Vips::Image.new_from_buffer(data, '').write_to_buffer('.png')
       end
 
-      { success: true, data: data }
+      result = { success: true, status: response.status, reason: 'ok', data: data }
+      observe_upstream_fetch_result(result, response, duration_ms, z, x, y, started_at: upstream_started_at, finished_at: upstream_finished_at)
+      result
     rescue => e
-      {
+      result = {
         success: false,
         status: 500,
         reason: 'fetch_error',
         details: "Background fetch error: #{e.message}",
         body: nil
       }
+      UpstreamObservability.record(
+        source: @source_name,
+        z: z,
+        x: x,
+        y: y,
+        status: 0,
+        reason: 'autoscan_fetch_exception',
+        duration_ms: ((Observability.monotonic_time - started_at) * 1000).round,
+        started_at: wall_started_at,
+        finished_at: Time.now.utc,
+        host: Observability.upstream_host(@route[:target]),
+        error_class: e.class.name,
+        error: e.message
+      )
+      result
     end
+  end
+
+  def observe_upstream_fetch_result(result, response, duration_ms, z, x, y, started_at: nil, finished_at: nil, **attrs)
+    UpstreamObservability.record(
+      source: @source_name,
+      z: z,
+      x: x,
+      y: y,
+      status: result[:status],
+      reason: result[:reason],
+      duration_ms: duration_ms,
+      started_at: started_at,
+      finished_at: finished_at,
+      bytes: result[:data]&.bytesize || result[:body]&.bytesize,
+      content_type: response&.headers&.[]('content-type'),
+      host: Observability.upstream_host(@route[:target]),
+      **attrs
+    )
   end
 
   def validate_and_save_tile(z, x, y, data)
@@ -973,6 +1054,12 @@ class BackgroundTileLoader
     validation_result = VipsTileValidator.validate(data, check_transparency: check_transparency)
 
     if [:transparent, :corrupted].include?(validation_result)
+      if validation_result == :corrupted
+        LOGGER.warn(
+          "event=autoscan_tile_validation_failed source=#{@source_name} " \
+          "z=#{z} x=#{x} y=#{y} reason=#{validation_result}"
+        )
+      end
       DatabaseManager.record_miss(@route, z, x, y, validation_result.to_s, "Tile is #{validation_result}", 200, nil)
       false
     else
@@ -980,6 +1067,7 @@ class BackgroundTileLoader
       true
     end
   rescue => e
+    LOGGER.warn("event=autoscan_tile_validation_error source=#{@source_name} z=#{z} x=#{x} y=#{y} error=#{e.message}")
     DatabaseManager.record_miss(@route, z, x, y, 'corrupted', "Validation error: #{e.message}", 200, nil)
     false
   end
@@ -1006,12 +1094,15 @@ class BackgroundTileLoader
   end
 
   def handle_critical_error(result)
-    LOGGER.error("Critical error #{result[:status]} for #{@source_name}: #{result[:details]} - check credentials/access")
+    LOGGER.error(
+      "event=autoscan_critical_error source=#{@source_name} " \
+      "status=#{result[:status]} reason=#{result[:reason]} details=#{result[:details]}"
+    )
     update_all_statuses('critical_error')
   end
 
   def handle_source_unavailable(x, y, z, attempts)
-    LOGGER.error("Source unavailable after #{attempts} retry attempts for tile #{z}/#{x}/#{y} of #{@source_name}")
+    LOGGER.error("event=autoscan_source_unavailable source=#{@source_name} z=#{z} x=#{x} y=#{y} attempts=#{attempts}")
     update_all_statuses('source_unavailable')
   end
 

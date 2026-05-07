@@ -1,8 +1,11 @@
 require 'sinatra'
 require 'sequel'
+ENV['PERFORMANCE'] ||= 'true'
+require_relative 'observability_setup'
 require 'faraday'
 require 'faraday/retry'
 require 'stack-service-base'
+Observability.patch_stack_service_base! unless ENV['TPC_OBSERVABILITY_SETUP'] == 'false'
 require 'maplibre-preview'
 require 'yaml'
 require 'vips'
@@ -15,7 +18,6 @@ require_relative 'background_tile_loader'
 require_relative 'database_manager'
 require_relative 'tile_reconstructor'
 require_relative 'vips_tile_validator'
-require_relative 'observability_setup'
 require_relative 'geometry_tile_calculator'
 
 register MapLibrePreview::Extension
@@ -73,7 +75,7 @@ module ReconstructionCoordinator
 
         loader.restart if was_autoscan_running && loader&.enabled?
       rescue => e
-        LOGGER.error("ReconstructionCoordinator: error resuming autoscan for #{source}: #{e.message}")
+        LOGGER.error("event=reconstruction_autoscan_resume_error source=#{source} error=#{e.message}")
       end
     end
 
@@ -321,6 +323,7 @@ end
 
 configure do
   ROUTES.each do |_name, route|
+    route[:observability_source] = _name.to_s
     route[:output_format] = normalize_output_format(route, _name)
 
     uri = URI.parse route[:target].gsub(/[{}]/, '_')
@@ -480,6 +483,7 @@ helpers do
           begin
             data = convert_to_webp(data, route)
           rescue => e
+            LOGGER.warn("event=webp_conversion_error source=#{route[:observability_source]} z=#{z} x=#{x} y=#{y} error=#{e.message}")
             DatabaseManager.record_miss(route, z, x, y, 'webp_conversion_error', "WebP conversion error: #{e.message}", 500, nil)
             return nil
           end
@@ -493,16 +497,29 @@ helpers do
       raise "validation.check_transparency must be specified when validation.enabled is true" if check_transparency.nil?
 
       begin
-        validation_result = otl_span("tile_validation", {
-          route_path: route[:path], z: z, x: x, y: y,
-          bytes: result[:data]&.bytesize.to_i, check_transparency: check_transparency
-        }) do
+        validation_result = otl_span(
+          "tile.validation",
+          {
+            source: route[:observability_source],
+            z: z,
+            x: x,
+            y: y,
+            bytes: result[:data]&.bytesize.to_i,
+            check_transparency: check_transparency
+          }
+        ) do |span|
           VipsTileValidator.validate(result[:data], check_transparency: check_transparency).tap do |validation|
-            otl_current_span { _1.add_attributes(validation_result: validation.to_s) }
+            span&.add_attributes(validation_result: validation.to_s)
           end
         end
 
         if [:transparent, :corrupted].include?(validation_result)
+          if validation_result == :corrupted
+            LOGGER.warn(
+              "event=tile_validation_failed source=#{route[:observability_source]} " \
+              "z=#{z} x=#{x} y=#{y} reason=#{validation_result}"
+            )
+          end
           DatabaseManager.record_miss(route, z, x, y, validation_result.to_s, "Tile is #{validation_result}", 200, nil)
           nil
         else
@@ -510,6 +527,7 @@ helpers do
             begin
               result[:data] = convert_to_webp(result[:data], route)
             rescue => e
+              LOGGER.warn("event=webp_conversion_error source=#{route[:observability_source]} z=#{z} x=#{x} y=#{y} error=#{e.message}")
               DatabaseManager.record_miss(route, z, x, y, 'webp_conversion_error', "WebP conversion error after validation: #{e.message}", 500, nil)
               return nil
             end
@@ -519,6 +537,7 @@ helpers do
           result[:data]
         end
       rescue => e
+        LOGGER.warn("event=tile_validation_error source=#{route[:observability_source]} z=#{z} x=#{x} y=#{y} error=#{e.message}")
         DatabaseManager.record_miss(route, z, x, y, 'corrupted', "Validation error: #{e.message}", 200, nil)
         nil
       end
@@ -563,6 +582,8 @@ helpers do
   end
 
   def fetch_http(route:, x:, y:, z:)
+    started_at = Observability.monotonic_time
+    wall_started_at = Time.now.utc
     target_path = route[:target].gsub('{z}', z.to_s)
                                 .gsub('{x}', x.to_s)
                                 .gsub('{y}', y.to_s)
@@ -570,9 +591,19 @@ helpers do
     target_path += "?#{URI.encode_www_form(route[:query_params])}" if route[:query_params]
 
     headers = build_request_headers(route)
-    response = route[:client].get(target_path, nil, headers)
+    response, duration_ms, upstream_started_at, upstream_finished_at = Observability.measure_duration do
+      route[:client].get(target_path, nil, headers)
+    end
 
-    return handle_response_error(response, route, z, x, y) if (error = validate_response(response, route))
+    if (error = validate_response(response, route))
+      return handle_response_error(
+        response, route, z, x, y,
+        error: error,
+        duration_ms: duration_ms,
+        started_at: upstream_started_at,
+        finished_at: upstream_finished_at
+      )
+    end
 
     status response.status
     copy_headers_from_response(response.headers)
@@ -586,20 +617,23 @@ helpers do
     
     if route[:source_format] == "lerc" && data && !data.empty?
       if response.headers['content-type']&.include?('text/html')
-        return { error: true, reason: 'arcgis_html_error', details: build_error_details(response, "ArcGIS returned HTML error page"), status: 404, body: data }
+        details = build_error_details(response, "ArcGIS returned HTML error page")
+        return observed_fetch_error(response, route, z, x, y, reason: 'arcgis_html_error', details: details, status: 404, body: data, duration_ms: duration_ms, started_at: upstream_started_at, finished_at: upstream_finished_at)
       end
       
       begin
         decoded_data = LercFFI.lerc_to_mapbox_png(data)
         if decoded_data.nil?
-          return { error: true, reason: 'arcgis_nodata', details: build_error_details(response, "LERC tile has no valid pixels (empty tile)"), status: 404, body: data }
+          details = build_error_details(response, "LERC tile has no valid pixels (empty tile)")
+          return observed_fetch_error(response, route, z, x, y, reason: 'arcgis_nodata', details: details, status: 404, body: data, duration_ms: duration_ms, started_at: upstream_started_at, finished_at: upstream_finished_at)
         end
         
         headers['Content-Type'] = 'image/png'
         data = decoded_data
         current_format = 'png'
       rescue => e
-        return { error: true, reason: 'lerc_decode_error', details: build_error_details(response, "LERC decode error: #{e.message}"), status: 500, body: data }
+        details = build_error_details(response, "LERC decode error: #{e.message}")
+        return observed_fetch_error(response, route, z, x, y, reason: 'lerc_decode_error', details: details, status: 500, body: data, duration_ms: duration_ms, started_at: upstream_started_at, finished_at: upstream_finished_at, error_class: e.class.name, error: e.message)
       end
     end
     
@@ -622,14 +656,46 @@ helpers do
           headers['Content-Type'] = 'image/png'
         end
       rescue => e
-        return { error: true, reason: 'image_processing_error', details: build_error_details(response, "Image processing error: #{e.message}"), status: 500, body: data }
+        details = build_error_details(response, "Image processing error: #{e.message}")
+        return observed_fetch_error(response, route, z, x, y, reason: 'image_processing_error', details: details, status: 500, body: data, duration_ms: duration_ms, started_at: upstream_started_at, finished_at: upstream_finished_at, error_class: e.class.name, error: e.message)
       end
     elsif target_format == 'png' && current_format != 'png'
       data = Vips::Image.new_from_buffer(data, '').write_to_buffer('.png')
       headers['Content-Type'] = 'image/png'
     end
 
+    UpstreamObservability.record(
+      source: route[:observability_source],
+      z: z,
+      x: x,
+      y: y,
+      status: response.status,
+      reason: 'ok',
+      duration_ms: duration_ms,
+      started_at: upstream_started_at,
+      finished_at: upstream_finished_at,
+      bytes: data&.bytesize,
+      content_type: response.headers['content-type'],
+      host: Observability.upstream_host(route[:target])
+    )
+
     { error: false, data: data }
+  rescue => e
+    UpstreamObservability.record(
+      source: route[:observability_source],
+      z: z,
+      x: x,
+      y: y,
+      status: 0,
+      reason: 'upstream_exception',
+      duration_ms: ((Observability.monotonic_time - started_at) * 1000).round,
+      started_at: wall_started_at,
+      finished_at: Time.now.utc,
+      host: Observability.upstream_host(route[:target]),
+      error_class: e.class.name,
+      error: e.message
+    )
+    { error: true, reason: 'fetch_error', details: "Fetch error: #{e.message}", status: 0, body: nil }
   end
 
   def validate_response(response, route)
@@ -641,14 +707,47 @@ helpers do
     nil
   end
 
-  def handle_response_error(response, route, z, x, y)
-    error = validate_response(response, route)
+  def handle_response_error(response, route, z, x, y, error:, duration_ms:, started_at:, finished_at:)
     details = build_error_details(response, error)
-    LOGGER.info("fetch_http error: #{error} (status: #{response.status}, source: #{route[:target]}, tile: #{z}/#{x}/#{y})")
+    reason = error.to_s.start_with?('Content-Type:') ? 'invalid_content_type' : error
+    UpstreamObservability.record(
+      source: route[:observability_source],
+      z: z,
+      x: x,
+      y: y,
+      status: response.status,
+      reason: reason,
+      duration_ms: duration_ms,
+      started_at: started_at,
+      finished_at: finished_at,
+      bytes: response.body&.bytesize,
+      content_type: response.headers['content-type'],
+      host: Observability.upstream_host(route[:target])
+    )
     { error: true, reason: 'fetch_error', details: details, status: response.status, body: response.body }
   end
 
-  otl_def def build_error_details(response, error, include_body: true)
+  def observed_fetch_error(response, route, z, x, y, reason:, details:, status:, body:, duration_ms:, started_at:, finished_at:, **attrs)
+    UpstreamObservability.record(
+      source: route[:observability_source],
+      z: z,
+      x: x,
+      y: y,
+      status: status,
+      reason: reason,
+      duration_ms: duration_ms,
+      started_at: started_at,
+      finished_at: finished_at,
+      bytes: body&.bytesize,
+      content_type: response.headers['content-type'],
+      host: Observability.upstream_host(route[:target]),
+      **attrs
+    )
+
+    { error: true, reason: reason, details: details, status: status, body: body }
+  end
+
+  def build_error_details(response, error, include_body: true)
     details = [error]
     
     response_headers = response.headers.select { |k, v| %w[content-type content-length server date].include?(k.downcase) }
@@ -679,7 +778,7 @@ helpers do
                { lossless: false, Q: quality }
              end
 
-    otl_span("convert_to_webp", { route_path: route[:path], bytes: data&.bytesize.to_i, **params }) do
+    otl_span("tile.convert_to_webp", { source: route[:observability_source], bytes: data&.bytesize.to_i, **params }) do
       Vips::Image.new_from_buffer(data, '').write_to_buffer('.webp', **params)
     end
   end

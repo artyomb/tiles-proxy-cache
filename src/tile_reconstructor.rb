@@ -30,7 +30,7 @@ class TileReconstructor
         begin
           check_and_run_scheduled if should_run_now?
         rescue => e
-          LOGGER.error("TileReconstructor scheduler error for #{@source_name}: #{e.message}")
+          LOGGER.error("event=reconstruction_scheduler_error source=#{@source_name} error=#{e.message}")
         end
       end
     end
@@ -56,7 +56,7 @@ class TileReconstructor
         run_reconstruction
         @last_run = Time.now.utc
       rescue => e
-        LOGGER.error("TileReconstructor error for #{@source_name}: #{e.message}")
+        LOGGER.error("event=reconstruction_error source=#{@source_name} mode=#{@reconstruction_mode} error=#{e.message}")
         LOGGER.debug("TileReconstructor: backtrace: #{e.backtrace.join("\n")}")
       ensure
         @running = false
@@ -89,7 +89,7 @@ class TileReconstructor
       value: Time.now.utc.iso8601
     )
   rescue => e
-    LOGGER.warn("TileReconstructor: failed to save last run timestamp: #{e.message}")
+    LOGGER.warn("event=reconstruction_timestamp_save_error source=#{@source_name} error=#{e.message}")
   end
 
   def get_last_run_timestamp(db)
@@ -98,7 +98,7 @@ class TileReconstructor
 
     Time.parse(timestamp_str)
   rescue => e
-    LOGGER.warn("TileReconstructor: failed to get last run timestamp: #{e.message}")
+    LOGGER.warn("event=reconstruction_timestamp_load_error source=#{@source_name} error=#{e.message}")
     nil
   end
 
@@ -126,77 +126,94 @@ class TileReconstructor
 
   # Main reconstruction loop: processes all zoom levels from maxzoom-1 to minzoom
   def run_reconstruction
-    db = @route[:db]
-    minzoom = @route[:minzoom]
-    maxzoom = @route[:maxzoom]
+    otl_span('reconstruction.run', { source: @source_name, mode: @reconstruction_mode }) do |span|
+      db = @route[:db]
+      minzoom = @route[:minzoom]
+      maxzoom = @route[:maxzoom]
 
-    start_zoom = maxzoom - 1
-    return if start_zoom < minzoom
+      start_zoom = maxzoom - 1
+      return if start_zoom < minzoom
 
-    downsample_opts = build_downsample_opts(@route)
+      span&.add_attributes(minzoom: minzoom, maxzoom: maxzoom, start_zoom: start_zoom)
+      downsample_opts = build_downsample_opts(@route)
 
-    last_run_time = @reconstruction_mode == :full ? nil : get_last_run_timestamp(db)
-    mode_name = @reconstruction_mode == :full ? "full rebuild" : (last_run_time ? "incremental (last run: #{last_run_time.iso8601})" : "full")
-    LOGGER.info("TileReconstructor: starting #{mode_name} gap filling for #{@source_name} from zoom #{start_zoom} to #{minzoom}")
+      last_run_time = @reconstruction_mode == :full ? nil : get_last_run_timestamp(db)
+      mode_name = @reconstruction_mode == :full ? "full rebuild" : (last_run_time ? "incremental (last run: #{last_run_time.iso8601})" : "full")
+      LOGGER.info("TileReconstructor: starting #{mode_name} gap filling for #{@source_name} from zoom #{start_zoom} to #{minzoom}")
 
-    start_zoom.downto(minzoom) do |z|
-      break unless @running
+      start_zoom.downto(minzoom) do |z|
+        break unless @running
 
-      begin
-        process_zoom_level(z, db, downsample_opts, minzoom, maxzoom, last_run_time)
-      rescue => e
-        LOGGER.error("TileReconstructor: failed to process zoom #{z} for #{@source_name}: #{e.message}")
-        LOGGER.debug("TileReconstructor: backtrace: #{e.backtrace.join("\n")}")
+        begin
+          process_zoom_level(z, db, downsample_opts, minzoom, maxzoom, last_run_time)
+        rescue => e
+          LOGGER.error("event=reconstruction_zoom_error source=#{@source_name} zoom=#{z} error=#{e.message}")
+          LOGGER.debug("TileReconstructor: backtrace: #{e.backtrace.join("\n")}")
+        end
       end
+
+      save_last_run_timestamp(db)
+
+      LOGGER.info("TileReconstructor: gap filling completed for #{@source_name}")
     end
-
-    save_last_run_timestamp(db)
-
-    LOGGER.info("TileReconstructor: gap filling completed for #{@source_name}")
   end
-
-  otl_def :run_reconstruction
 
   def process_zoom_level(z, db, downsample_opts, minzoom, maxzoom, last_run_time = nil)
-    parent_z = z - 1
-    return if parent_z < minzoom
+    otl_span('reconstruction.zoom', { source: @source_name, zoom: z }) do |span|
+      parent_z = z - 1
+      return if parent_z < minzoom
 
-    LOGGER.info("TileReconstructor: processing zoom #{z} -> #{parent_z}")
+      LOGGER.info("TileReconstructor: processing zoom #{z} -> #{parent_z}")
 
-    all_tiles_z = load_tiles_for_zoom(z, db, last_run_time)
-    return if all_tiles_z.empty?
+      all_tiles_z = load_tiles_for_zoom(z, db, last_run_time)
+      return if all_tiles_z.empty?
 
-    log_msg = last_run_time ? "loaded #{all_tiles_z.size} tiles for zoom #{z} (filtered by timestamp)" : "loaded #{all_tiles_z.size} tiles for zoom #{z}"
-    LOGGER.info("TileReconstructor: #{log_msg}")
+      log_msg = last_run_time ? "loaded #{all_tiles_z.size} tiles for zoom #{z} (filtered by timestamp)" : "loaded #{all_tiles_z.size} tiles for zoom #{z}"
+      LOGGER.info("TileReconstructor: #{log_msg}")
 
-    parent_coords_set = calculate_parent_coords(all_tiles_z)
-    LOGGER.info("TileReconstructor: calculated #{parent_coords_set.size} unique parents for zoom #{parent_z}")
+      parent_coords_set = calculate_parent_coords(all_tiles_z)
+      LOGGER.info("TileReconstructor: calculated #{parent_coords_set.size} unique parents for zoom #{parent_z}")
 
-    processed_count = 0
-    generated_count = 0
-    invalid_tiles_coords = []
+      processed_count = 0
+      generated_count = 0
+      invalid_tiles_coords = []
+      error_count = 0
 
-    parent_coords_set.each do |parent_coords|
-      break unless @running
+      parent_coords_set.each do |parent_coords|
+        break unless @running
 
-      begin
-        generated, invalid_coords = process_parent(parent_coords, z, parent_z, db, downsample_opts, minzoom)
-        generated_count += 1 if generated
-        invalid_tiles_coords.concat(invalid_coords) if invalid_coords.any?
-        processed_count += 1
-      rescue => e
-        LOGGER.warn("TileReconstructor: failed to process parent #{parent_z}/#{parent_coords[0]}/#{parent_coords[1]}: #{e.message}")
+        begin
+          generated, invalid_coords = process_parent(parent_coords, z, parent_z, db, downsample_opts, minzoom)
+          generated_count += 1 if generated
+          invalid_tiles_coords.concat(invalid_coords) if invalid_coords.any?
+          processed_count += 1
+        rescue => e
+          error_count += 1
+          LOGGER.warn(
+            "event=reconstruction_parent_error source=#{@source_name} zoom=#{parent_z} " \
+            "x=#{parent_coords[0]} y=#{parent_coords[1]} error=#{e.message}"
+          )
+        end
       end
-    end
 
-    if invalid_tiles_coords.any?
-      cleanup_invalid_tiles(invalid_tiles_coords, db)
-    end
+      cleanup_invalid_tiles(invalid_tiles_coords, db) if invalid_tiles_coords.any?
 
-    LOGGER.info("TileReconstructor: zoom #{z} -> #{parent_z} completed: processed #{processed_count}, generated #{generated_count}")
+      span&.add_attributes(
+        parent_zoom: parent_z,
+        loaded_tiles: all_tiles_z.size,
+        parents: parent_coords_set.size,
+        processed: processed_count,
+        generated: generated_count,
+        invalid: invalid_tiles_coords.size,
+        errors: error_count
+      )
+      LOGGER.info(
+        "event=reconstruction_zoom_summary source=#{@source_name} zoom=#{z} " \
+        "parent_zoom=#{parent_z} processed=#{processed_count} generated=#{generated_count} " \
+        "invalid=#{invalid_tiles_coords.size} errors=#{error_count}"
+      )
+    end
   end
-
-  otl_def :process_zoom_level
 
   # Processes single parent tile: loads parent + children, validates, decides, generates
   # Returns: [generated, invalid_tiles_coords] where generated is true/false and invalid_tiles_coords is array of invalid child tiles
@@ -388,7 +405,7 @@ class TileReconstructor
 
     true
   rescue => e
-    LOGGER.warn("TileReconstructor: failed to generate tile #{parent_z}/#{px}/#{py}: #{e.message}")
+    LOGGER.warn("event=reconstruction_generate_error source=#{@source_name} zoom=#{parent_z} x=#{px} y=#{py} error=#{e.message}")
     false
   end
 
@@ -439,11 +456,11 @@ class TileReconstructor
         processed_count += 1
       rescue => e
         error_count += 1
-        LOGGER.warn("TileReconstructor: failed to cleanup invalid tile #{z}/#{x}/#{y}: #{e.message}")
+        LOGGER.warn("event=reconstruction_cleanup_invalid_error source=#{@source_name} zoom=#{z} x=#{x} y=#{y} error=#{e.message}")
       end
     end
 
-    LOGGER.info("TileReconstructor: cleaned up #{processed_count} invalid tiles#{error_count > 0 ? " (#{error_count} errors)" : ''}")
+    LOGGER.info("event=reconstruction_cleanup_invalid_summary source=#{@source_name} processed=#{processed_count} errors=#{error_count}")
   end
 
 
@@ -457,7 +474,7 @@ class TileReconstructor
     result = parent_img.composite2(child_img, :over)
     result.write_to_buffer(".#{format}")
   rescue Vips::Error => e
-    LOGGER.warn("TileReconstructor: failed to composite parent over child: #{e.message}")
+    LOGGER.warn("event=reconstruction_composite_error source=#{@source_name} error=#{e.message}")
     nil
   end
 
@@ -569,7 +586,7 @@ class TileReconstructor
 
     @transparent_tile_data = transparent.write_to_buffer(".#{format}")
   rescue Vips::Error => e
-    LOGGER.warn("TileReconstructor: failed to create transparent tile: #{e.message}")
+    LOGGER.warn("event=reconstruction_transparent_tile_error source=#{@source_name} error=#{e.message}")
     nil
   end
 end

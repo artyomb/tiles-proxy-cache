@@ -71,7 +71,7 @@ module VipsTileValidator
       begin
         cleanup_database(route, source_name, check_transparency, cleanup_state)
       rescue => e
-        LOGGER.error("VipsTileValidator: cleanup error for #{source_name}: #{e.message}")
+        LOGGER.error("event=validator_cleanup_error source=#{source_name} error=#{e.message}")
         LOGGER.debug("VipsTileValidator: backtrace: #{e.backtrace.join("\n")}")
       ensure
         cleanup_state[:running] = false
@@ -88,14 +88,14 @@ module VipsTileValidator
 
           loader.restart if loader&.enabled?
         rescue => e
-          LOGGER.error("VipsTileValidator: error resuming autoscan for #{source_name}: #{e.message}")
+          LOGGER.error("event=validator_autoscan_resume_error source=#{source_name} error=#{e.message}")
         end
       end
     end
 
     cleanup_state[:thread] = cleanup_thread
 
-    LOGGER.info("VipsTileValidator: cleanup started for #{source_name}, total tiles: #{total_count}")
+    LOGGER.info("event=validator_cleanup_started source=#{source_name} total=#{total_count}")
     true
   end
 
@@ -105,76 +105,86 @@ module VipsTileValidator
   # @param check_transparency [Boolean] Transparency check flag
   # @param state [Hash] Cleanup state
   def self.cleanup_database(route, source_name, check_transparency, state)
-    db = route[:db]
-    stats = state[:stats]
+    otl_span('validator.cleanup', { source: source_name }) do |span|
+      db = route[:db]
+      stats = state[:stats]
 
-    tiles_coords = db[:tiles].where(generated: 0).select(:zoom_level, :tile_column, :tile_row).all
-    idx = 0
+      tiles_coords = db[:tiles].where(generated: 0).select(:zoom_level, :tile_column, :tile_row).all
+      idx = 0
 
-    while idx < tiles_coords.size
-      break unless state[:running]
+      while idx < tiles_coords.size
+        break unless state[:running]
 
-      tile_coord = tiles_coords[idx]
-      z = tile_coord[:zoom_level]
-      x = tile_coord[:tile_column]
-      tile_row = tile_coord[:tile_row]
+        tile_coord = tiles_coords[idx]
+        z = tile_coord[:zoom_level]
+        x = tile_coord[:tile_column]
+        tile_row = tile_coord[:tile_row]
 
-      begin
-        tile_data = db[:tiles].where(
-          zoom_level: z,
-          tile_column: x,
-          tile_row: tile_row
-        ).get(:tile_data)
+        begin
+          tile_data = db[:tiles].where(
+            zoom_level: z,
+            tile_column: x,
+            tile_row: tile_row
+          ).get(:tile_data)
 
-        validation_result = validate(tile_data, check_transparency: check_transparency)
+          validation_result = validate(tile_data, check_transparency: check_transparency)
 
-        if [:transparent, :corrupted].include?(validation_result)
-          db.transaction do
-            db[:tiles].where(
-              zoom_level: z,
-              tile_column: x,
-              tile_row: tile_row
-            ).delete
+          if [:transparent, :corrupted].include?(validation_result)
+            db.transaction do
+              db[:tiles].where(
+                zoom_level: z,
+                tile_column: x,
+                tile_row: tile_row
+              ).delete
 
-            reason = validation_result.to_s
-            db[:misses].insert_conflict(
-              target: [:zoom_level, :tile_column, :tile_row],
-              update: {
-                ts: Sequel[:excluded][:ts],
-                reason: Sequel[:excluded][:reason],
-                details: Sequel[:excluded][:details],
-                status: Sequel[:excluded][:status]
-              }
-            ).insert(
-              zoom_level: z,
-              tile_column: x,
-              tile_row: tile_row,
-              ts: Time.now.to_i,
-              reason: reason,
-              details: "Tile is #{validation_result}",
-              status: 200,
-              response_body: nil
+              reason = validation_result.to_s
+              db[:misses].insert_conflict(
+                target: [:zoom_level, :tile_column, :tile_row],
+                update: {
+                  ts: Sequel[:excluded][:ts],
+                  reason: Sequel[:excluded][:reason],
+                  details: Sequel[:excluded][:details],
+                  status: Sequel[:excluded][:status]
+                }
+              ).insert(
+                zoom_level: z,
+                tile_column: x,
+                tile_row: tile_row,
+                ts: Time.now.to_i,
+                reason: reason,
+                details: "Tile is #{validation_result}",
+                status: 200,
+                response_body: nil
+              )
+            end
+            stats[:invalid] += 1
+          else
+            stats[:valid] += 1
+          end
+
+          stats[:processed] += 1
+
+          if stats[:processed] % 1000 == 0
+            LOGGER.info(
+              "event=validator_cleanup_progress source=#{source_name} " \
+              "processed=#{stats[:processed]} total=#{stats[:total]} " \
+              "invalid=#{stats[:invalid]} valid=#{stats[:valid]}"
             )
           end
-          stats[:invalid] += 1
-        else
-          stats[:valid] += 1
+        rescue => e
+          LOGGER.warn("event=validator_cleanup_tile_error source=#{source_name} z=#{z} x=#{x} y=#{tile_row} error=#{e.message}")
+          stats[:processed] += 1
         end
 
-        stats[:processed] += 1
-
-        if stats[:processed] % 1000 == 0
-          LOGGER.info("VipsTileValidator: cleanup progress for #{source_name}: processed #{stats[:processed]}/#{stats[:total]}, invalid: #{stats[:invalid]}, valid: #{stats[:valid]}")
-        end
-      rescue => e
-        LOGGER.warn("VipsTileValidator: failed to process tile #{z}/#{x}/#{tile_row} for #{source_name}: #{e.message}")
-        stats[:processed] += 1
+        idx += 1
       end
 
-      idx += 1
+      span&.add_attributes(stats)
+      LOGGER.info(
+        "event=validator_cleanup_completed source=#{source_name} " \
+        "processed=#{stats[:processed]} invalid=#{stats[:invalid]} valid=#{stats[:valid]}"
+      )
     end
-
-    LOGGER.info("VipsTileValidator: cleanup completed for #{source_name}: processed #{stats[:processed]}, invalid: #{stats[:invalid]}, valid: #{stats[:valid]}")
   end
 
   # Returns cleanup status

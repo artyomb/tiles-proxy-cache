@@ -1,5 +1,6 @@
 require 'faraday'
 require 'tempfile'
+require_relative 'observability_setup'
 
 module MetadataManager
   extend self
@@ -36,32 +37,34 @@ module MetadataManager
   end
 
   def detect_format_and_tile_size(route)
-    config_metadata = route[:metadata] || {}
-    min_zoom = config_metadata[:minzoom] || route[:minzoom]
-    max_zoom = config_metadata[:maxzoom] || route[:maxzoom]
-    
-    return nil if min_zoom.nil? || max_zoom.nil?
-    
-    range = max_zoom - min_zoom
-    test_zooms = range <= 3 ? (min_zoom..max_zoom).to_a : 
-                 [min_zoom, min_zoom + range / 3, min_zoom + range * 2 / 3, max_zoom].map(&:round).uniq
-    
-    hot_spots = [[37.6176, 55.7558], [-0.1276, 51.5074], [-74.0060, 40.7128], [0, 0]]
-    
-    test_zooms.each do |zoom|
-      hot_spots.each do |lon, lat|
-        x = ((lon + 180) / 360 * (1 << zoom)).floor
-        y = ((1 - Math.log(Math.tan(lat * Math::PI / 180) + 1 / Math.cos(lat * Math::PI / 180)) / Math::PI) / 2 * (1 << zoom)).floor
-        
-        next if x < 0 || y < 0 || x >= (1 << zoom) || y >= (1 << zoom)
-        
-        result = try_fetch_tile(route, zoom, x, y)
-        return result if result
+    otl_span('metadata.detect', { source: route[:observability_source] }) do
+      config_metadata = route[:metadata] || {}
+      min_zoom = config_metadata[:minzoom] || route[:minzoom]
+      max_zoom = config_metadata[:maxzoom] || route[:maxzoom]
+
+      return nil if min_zoom.nil? || max_zoom.nil?
+
+      range = max_zoom - min_zoom
+      test_zooms = range <= 3 ? (min_zoom..max_zoom).to_a :
+                   [min_zoom, min_zoom + range / 3, min_zoom + range * 2 / 3, max_zoom].map(&:round).uniq
+
+      hot_spots = [[37.6176, 55.7558], [-0.1276, 51.5074], [-74.0060, 40.7128], [0, 0]]
+
+      test_zooms.each do |zoom|
+        hot_spots.each do |lon, lat|
+          x = ((lon + 180) / 360 * (1 << zoom)).floor
+          y = ((1 - Math.log(Math.tan(lat * Math::PI / 180) + 1 / Math.cos(lat * Math::PI / 180)) / Math::PI) / 2 * (1 << zoom)).floor
+
+          next if x < 0 || y < 0 || x >= (1 << zoom) || y >= (1 << zoom)
+
+          result = try_fetch_tile(route, zoom, x, y)
+          return result if result
+        end
       end
+
+      LOGGER.warn("event=metadata_detect_failed source=#{route[:observability_source]}")
+      nil
     end
-    
-    LOGGER.warn("Failed to detect format and tile size")
-    nil
   end
 
   def try_fetch_tile(route, zoom, x, y)
@@ -69,10 +72,25 @@ module MetadataManager
     test_url += "?#{URI.encode_www_form(route[:query_params])}" if route[:query_params]
     uri = URI.parse(test_url)
 
-    response = route[:client].get(uri.path + (uri.query ? "?#{uri.query}" : '')) do |req|
-      req.headers.merge!(test_headers(route))
-      req.options.timeout = 5
+    response, duration_ms = Observability.measure_duration do
+      route[:client].get(uri.path + (uri.query ? "?#{uri.query}" : '')) do |req|
+        req.headers.merge!(test_headers(route))
+        req.options.timeout = 5
+      end
     end
+
+    record_metadata_probe_result(
+      source: route[:observability_source],
+      z: zoom,
+      x: x,
+      y: y,
+      status: response.status,
+      reason: response.success? ? 'metadata_probe' : 'metadata_probe_failed',
+      duration_ms: duration_ms,
+      bytes: response.body&.bytesize,
+      content_type: response.headers['content-type'],
+      host: uri.host
+    )
 
     return nil unless response.success? && response.body&.size.to_i > 100
     return nil unless response.headers['content-type']&.include?('image/')
@@ -84,8 +102,17 @@ module MetadataManager
 
     { format: format, tile_size: tile_size }
   rescue => e
-    LOGGER.debug("Failed to test zoom=#{zoom}, x=#{x}, y=#{y}: #{e.message}")
+    LOGGER.warn("event=metadata_probe_error source=#{route[:observability_source]} z=#{zoom} x=#{x} y=#{y} error=#{e.message}")
     nil
+  end
+
+  def record_metadata_probe_result(source:, z:, x:, y:, status:, reason:, duration_ms:, bytes: nil, content_type: nil, host: nil)
+    return if status.to_i < 500 && status.to_i != 0
+
+    LOGGER.warn(
+      "event=metadata_probe_upstream_error source=#{source} z=#{z} x=#{x} y=#{y} status=#{status} " \
+      "reason=#{reason} duration_ms=#{duration_ms} bytes=#{bytes} content_type=#{content_type} host=#{host}"
+    )
   end
 
   def detect_format_from_content_type(content_type)
@@ -120,7 +147,7 @@ module MetadataManager
       nil
     end
   rescue => e
-    LOGGER.warn("Failed to detect tile size: #{e}")
+    LOGGER.warn("event=metadata_tile_size_detect_error error=#{e.message}")
     nil
   end
 
