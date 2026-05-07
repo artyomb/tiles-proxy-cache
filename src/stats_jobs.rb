@@ -4,6 +4,7 @@ require 'securerandom'
 require 'time'
 require 'rbconfig'
 require_relative 'view_helpers'
+require_relative 'observability_setup'
 
 module StatsJobEntry
   module_function
@@ -137,7 +138,7 @@ class StatsAggregator
   private
 
   def connect_sqlite(db_path, **options, &block)
-    Sequel.connect("sqlite://#{db_path}", **options, &block)
+    Sequel.connect("sqlite://#{db_path}", **Observability.sql_logging_options.merge(options), &block)
   end
 end
 
@@ -291,29 +292,31 @@ class StatsJobManager
   end
 
   def start
-    cancel_active_job
+    otl_span('stats.job.start', {}) do
+      cancel_active_job
 
-    job_id = SecureRandom.uuid
-    handle = @runner.start { @job_factory.call }
-    job = {
-      job_id: job_id,
-      status: 'running',
-      started_at: handle.started_at.iso8601,
-      finished_at: nil,
-      result: nil,
-      error: nil,
-      pid: handle.pid
-    }
+      job_id = SecureRandom.uuid
+      handle = @runner.start { @job_factory.call }
+      job = {
+        job_id: job_id,
+        status: 'running',
+        started_at: handle.started_at.iso8601,
+        finished_at: nil,
+        result: nil,
+        error: nil,
+        pid: handle.pid
+      }
 
-    @mutex.synchronize { @current_job = job }
-    log('started', job_id:, pid: handle.pid)
+      @mutex.synchronize { @current_job = job }
+      log('started', job_id:, pid: handle.pid)
 
-    Thread.new do
-      Thread.current.report_on_exception = false
-      finalize_job(job_id, handle)
+      Thread.new do
+        Thread.current.report_on_exception = false
+        finalize_job(job_id, handle)
+      end
+
+      snapshot(job)
     end
-
-    snapshot(job)
   end
 
   def fetch(job_id)
@@ -342,6 +345,10 @@ class StatsJobManager
       @current_job[:error] = result.error
       @current_job[:finished_at] = finished_at
       @current_job[:pid] = nil
+    end
+
+    if result.status != 'completed'
+      @logger.warn("event=stats_job_failed job_id=#{job_id} pid=#{handle.pid} status=#{result.status} error=#{result.error}")
     end
 
     log(result.status, job_id:, pid: handle.pid, started_at: handle.started_at, finished_at: Time.now.utc)

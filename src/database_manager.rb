@@ -1,14 +1,16 @@
 require 'sequel'
 Sequel.extension :migration
 require_relative 'metadata_manager'
+require_relative 'observability_setup'
 
 module DatabaseManager
   extend self
 
   def setup_route_database(route, route_name)
     db_path = "sqlite://" + route[:mbtiles_file]
-    db = Sequel.connect(db_path, max_connections: 20)
+    db = Sequel.connect(db_path, max_connections: 20, **Observability.sql_logging_options)
 
+    Observability.configure_sql_logging(db)
     configure_sqlite_pragmas(db)
     create_tables(db)
     apply_migrations(db)
@@ -33,26 +35,27 @@ module DatabaseManager
 
   def vacuum_database(db, name = nil)
     name_str = name ? " for #{name}" : ""
-    LOGGER.info("Starting VACUUM operation#{name_str}...")
-    start_time = Time.now
-    db.run "VACUUM"
-    duration = Time.now - start_time
-    LOGGER.info("VACUUM completed#{name_str} in #{duration.round(2)}s")
+    otl_span('db.vacuum', { source: name }) do
+      LOGGER.info("Starting VACUUM operation#{name_str}...")
+      start_time = Time.now
+      db.run "VACUUM"
+      duration = Time.now - start_time
+      LOGGER.info("VACUUM completed#{name_str} in #{duration.round(2)}s")
+    end
   rescue => e
-    LOGGER.error("VACUUM failed#{name_str}: #{e.message}")
+    LOGGER.error("event=db_vacuum_failed source=#{name} error=#{e.message}")
   end
 
   def integrate_wal_files(db, name = nil)
     name_str = name ? " for #{name}" : ""
-    LOGGER.info("Integrating WAL files#{name_str} on startup...")
-    
-    begin
+    otl_span('db.wal_integrate', { source: name }) do
+      LOGGER.info("Integrating WAL files#{name_str} on startup...")
       db.run "PRAGMA wal_checkpoint(RESTART)"
       db.run "PRAGMA wal_checkpoint(TRUNCATE)"
       LOGGER.info("WAL integration completed#{name_str}")
-    rescue => e
-      LOGGER.error("Failed to integrate WAL#{name_str}: #{e.message}")
     end
+  rescue => e
+    LOGGER.error("event=db_wal_integrate_failed source=#{name} error=#{e.message}")
   end
 
   def record_miss(route, z, x, y, reason, details, status, body)
@@ -74,9 +77,20 @@ module DatabaseManager
       status: status,
       response_body: Sequel.blob(body || '')
     )
+
+    log_problem_miss(route, z, x, y, reason, status, details)
   end
 
   private
+
+  def log_problem_miss(route, z, x, y, reason, status, details)
+    reason = reason.to_s
+    return if reason == 'permanent:http_204'
+    return if %w[http_204 transparent corrupted].include?(reason)
+    return if status.to_i < 500 && !reason.match?(/error|timeout|network|refused/)
+
+    LOGGER.warn("event=tile_miss_recorded source=#{route[:observability_source]} z=#{z} x=#{x} y=#{y} status=#{status} reason=#{reason} details=#{details.to_s[0, 300]}")
+  end
 
   def configure_sqlite_pragmas(db)
     db.run "PRAGMA page_size=4096"      # or 8192/16384; set once
@@ -124,12 +138,12 @@ module DatabaseManager
     migrations_path = File.join(__dir__, 'migrations')
     return unless Dir.exist?(migrations_path) && !Dir[File.join(migrations_path, '*.rb')].empty?
 
-    begin
+    otl_span('db.migrations', {}) do
       Sequel::Migrator.run(db, migrations_path, table: :schema_info)
       LOGGER.info("Migrations applied successfully")
-    rescue => e
-      LOGGER.error("Migration failed: #{e.message}")
-      raise
     end
+  rescue => e
+    LOGGER.error("event=db_migration_failed error=#{e.message}")
+    raise
   end
 end
