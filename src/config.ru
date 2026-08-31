@@ -465,7 +465,7 @@ helpers do
   end
 
   def fetch_with_lock(route, z, x, y, tms)
-    route[:locks][key(z, x, y)].synchronize do
+    route[:locks].synchronize(key(z, x, y)) do
       tile = get_cached_tile(route, z, x, tms)
       return blob_to_string(tile[:tile_data]) if tile
 

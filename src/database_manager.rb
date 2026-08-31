@@ -2,6 +2,7 @@ require 'sequel'
 Sequel.extension :migration
 require_relative 'metadata_manager'
 require_relative 'observability_setup'
+require_relative 'tile_lock_registry'
 
 module DatabaseManager
   extend self
@@ -26,7 +27,7 @@ module DatabaseManager
     tile_size_value = db[:metadata].where(name: 'tileSize').get(:value)
     route[:tile_size] = tile_size_value ? tile_size_value.to_i : nil
 
-    route[:locks] = Hash.new { |h,k| h[k] = Mutex.new }
+    route[:locks] = TileLockRegistry.new
 
     db
   end
