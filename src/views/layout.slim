@@ -466,7 +466,7 @@ html
           .version-info
             span.version = "v" + (ENV['ORG_OPENCONTAINERS_IMAGE_VERSION'] || '1.0.0')
       == yield
-    script src="https://d3js.org/d3.v7.min.js"
+    script src=url_for("/vendor/d3.v7.9.0.min.js")
     script
       | let modalCallback = null;
       | 
