@@ -22,6 +22,7 @@ gem 'ffi'
 gem 'ruby-vips'
 gem 'concurrent-ruby'
 gem 'faraday'
+gem 'resolv', '>= 0.7.2'
 # gem 'faraday-net_http'  # or just rely on the default adapter
 gem 'faraday-retry'
 gem 'faraday-net_http_persistent'
