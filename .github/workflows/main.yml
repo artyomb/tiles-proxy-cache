@@ -3,17 +3,23 @@ on: { push: { branches: [main,release] } }
 jobs:
   build_service_images:
     runs-on: ubuntu-latest
+    env:
+      BUILDX_BAKE_ENTITLEMENTS_FS: '0'
+      REGISTRY_HOST: '${{ secrets.DOCKER_HUB_LOGIN }}'
     steps:
       - uses: actions/checkout@v3
       - uses: docker/login-action@v2
         with: { username: '${{ secrets.DOCKER_HUB_LOGIN }}', password: '${{ secrets.DOCKER_HUB_PASSWORD }}' }
       - uses: docker/setup-buildx-action@v3
       - uses: ruby/setup-ruby@v1
-        with: { ruby-version: 3.4.7 }
-      - run: gem install build-labels
-      - run: env && cd docker && build-labels -n -c docker-compose.yml $(if [ "${GITHUB_REF##*/}" = "release" ]; then echo "--full-version"; fi) github set_version to_dockerfiles to_compose | tee bake.yml
+        with: { ruby-version: 3.4.10 }
+      - run: gem install build-labels:0.0.84
+      - run: cd docker && build-labels -n -c docker-compose.yml $(if [ "${GITHUB_REF##*/}" = "release" ]; then echo "--full-version"; fi) github set_version to_dockerfiles to_compose | tee bake.yml
         env:
           GITHUB_RUN_NUMBER: ${{ github.run_number }}
-      - uses: docker/bake-action@v5
-        env: { REGISTRY_HOST: '${{ secrets.DOCKER_HUB_LOGIN }}' }
-        with: { workdir: ./docker, files: bake.yml, push: true }
+      - run: docker buildx bake -f bake.yml --set '*.output=type=docker' --sbom=false --provenance=false --metadata-file /tmp/bake-metadata.json
+        working-directory: docker
+      - run: trivy-runner -f bake.yml --metadata-file /tmp/bake-metadata.json -- --severity HIGH,CRITICAL --ignore-unfixed --table-mode detailed
+        working-directory: docker
+      - run: docker compose -f bake.yml push
+        working-directory: docker
