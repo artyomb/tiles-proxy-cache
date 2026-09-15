@@ -36,7 +36,7 @@ FROM base AS tests
 CMD bundle exec rspec
 
 FROM ruby:3.4.10-slim-bookworm AS deploy
-RUN apt update && apt install --fix-missing -y bash curl libssl-dev libengine-gost-openssl wget libpq-dev file libvips42 libyaml-0-2 libpng16-16 \
+RUN apt update && apt install --fix-missing -y bash curl libssl-dev libengine-gost-openssl wget libpq-dev file libvips42 libyaml-0-2 libpng16-16 libpcre2-8-0 \
      && rm -rf /var/lib/apt/lists/*
 
 ARG RESOLV_VERSION=0.7.2
