@@ -1,4 +1,5 @@
 require 'sequel'
+Sequel.extension :fiber_concurrency
 Sequel.extension :migration
 require_relative 'metadata_manager'
 require_relative 'observability_setup'
