@@ -5,6 +5,7 @@ require 'json'
 require 'concurrent-ruby'
 require_relative 'ext/terrain_downsample_extension'
 require_relative 'vips_tile_validator'
+require_relative 'tile_persistence'
 require_relative 'geometry_tile_calculator'
 require_relative 'observability_setup'
 
@@ -583,7 +584,12 @@ class BackgroundTileLoader
   def tile_exists?(x, y, z)
     @route[:db][:tiles]
       .where(zoom_level: z, tile_column: x, tile_row: tms_y(z, y))
-      .where(Sequel.lit('generated = 0 OR generated IS NULL'))
+      .where(
+        Sequel.|(
+          { generated: [0, TilePersistence::PENDING_RECONSTRUCTION] },
+          { generated: nil }
+        )
+      )
       .get(1)
   end
 
@@ -1063,7 +1069,7 @@ class BackgroundTileLoader
       DatabaseManager.record_miss(@route, z, x, y, validation_result.to_s, "Tile is #{validation_result}", 200, nil)
       false
     else
-      save_tile_to_db(z, x, y, data)
+      save_tile_to_db(z, x, y, data, validation_result: validation_result)
       true
     end
   rescue => e
@@ -1072,19 +1078,14 @@ class BackgroundTileLoader
     false
   end
 
-  def save_tile_to_db(z, x, y, data)
-    @route[:db][:tiles].insert_conflict(
-      target: [:zoom_level, :tile_column, :tile_row],
-      update: {
-        tile_data: Sequel[:excluded][:tile_data],
-        updated_at: Sequel.lit("datetime('now', 'utc')")
-      }
-    ).insert(
+  def save_tile_to_db(z, x, y, data, validation_result: nil)
+    TilePersistence.save_upstream_tile(
+      db: @route[:db],
       zoom_level: z,
       tile_column: x,
       tile_row: tms_y(z, y),
-      tile_data: Sequel.blob(data),
-      updated_at: Sequel.lit("datetime('now', 'utc')")
+      tile_data: data,
+      validation_result: validation_result
     )
   end
 

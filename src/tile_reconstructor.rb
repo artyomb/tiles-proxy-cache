@@ -1,8 +1,10 @@
 require 'vips'
 require 'sequel'
 require 'set'
+require 'time'
 require_relative 'ext/terrain_downsample_extension'
 require_relative 'vips_tile_validator'
+require_relative 'tile_persistence'
 
 class TileReconstructor
   KERNELS = %i[nearest linear cubic mitchell lanczos2 lanczos3].freeze # Vips interpolation kernels
@@ -53,8 +55,7 @@ class TileReconstructor
     @running = true
     @reconstruction_thread = Thread.new do
       begin
-        run_reconstruction
-        @last_run = Time.now.utc
+        @last_run = Time.now.utc if run_reconstruction
       rescue => e
         LOGGER.error("event=reconstruction_error source=#{@source_name} mode=#{@reconstruction_mode} error=#{e.message}")
         LOGGER.debug("TileReconstructor: backtrace: #{e.backtrace.join("\n")}")
@@ -80,16 +81,18 @@ class TileReconstructor
 
   private
 
-  def save_last_run_timestamp(db)
+  def save_last_run_timestamp(db, timestamp)
     db[:metadata].insert_conflict(
       target: :name,
       update: { value: Sequel[:excluded][:value] }
     ).insert(
       name: 'reconstruction_last_run',
-      value: Time.now.utc.iso8601
+      value: timestamp.iso8601(6)
     )
+    true
   rescue => e
     LOGGER.warn("event=reconstruction_timestamp_save_error source=#{@source_name} error=#{e.message}")
+    false
   end
 
   def get_last_run_timestamp(db)
@@ -138,40 +141,58 @@ class TileReconstructor
       downsample_opts = build_downsample_opts(@route)
 
       last_run_time = @reconstruction_mode == :full ? nil : get_last_run_timestamp(db)
+      run_cutoff = Time.now.utc - 1
       mode_name = @reconstruction_mode == :full ? "full rebuild" : (last_run_time ? "incremental (last run: #{last_run_time.iso8601})" : "full")
       LOGGER.info("TileReconstructor: starting #{mode_name} gap filling for #{@source_name} from zoom #{start_zoom} to #{minzoom}")
 
+      successful = true
+      @run_dirty_tiles_by_zoom = Hash.new { |hash, zoom| hash[zoom] = Set.new }
       start_zoom.downto(minzoom) do |z|
-        break unless @running
+        unless @running
+          successful = false
+          break
+        end
 
         begin
-          process_zoom_level(z, db, downsample_opts, minzoom, maxzoom, last_run_time)
+          zoom_successful = process_zoom_level(z, db, downsample_opts, minzoom, maxzoom, last_run_time, run_cutoff)
+          successful &&= zoom_successful
         rescue => e
+          successful = false
           LOGGER.error("event=reconstruction_zoom_error source=#{@source_name} zoom=#{z} error=#{e.message}")
           LOGGER.debug("TileReconstructor: backtrace: #{e.backtrace.join("\n")}")
         end
       end
 
-      save_last_run_timestamp(db)
+      successful &&= save_last_run_timestamp(db, run_cutoff)
 
-      LOGGER.info("TileReconstructor: gap filling completed for #{@source_name}")
+      if successful
+        LOGGER.info("TileReconstructor: gap filling completed for #{@source_name}")
+      else
+        LOGGER.warn("event=reconstruction_incomplete source=#{@source_name} mode=#{@reconstruction_mode}")
+      end
+
+      successful
+    ensure
+      @run_dirty_tiles_by_zoom = nil
     end
   end
 
-  def process_zoom_level(z, db, downsample_opts, minzoom, maxzoom, last_run_time = nil)
+  def process_zoom_level(z, db, downsample_opts, minzoom, maxzoom, last_run_time = nil, run_cutoff = nil)
     otl_span('reconstruction.zoom', { source: @source_name, zoom: z }) do |span|
       parent_z = z - 1
-      return if parent_z < minzoom
+      return true if parent_z < minzoom
 
       LOGGER.info("TileReconstructor: processing zoom #{z} -> #{parent_z}")
 
-      all_tiles_z = load_tiles_for_zoom(z, db, last_run_time)
-      return if all_tiles_z.empty?
+      all_tiles_z = load_tiles_for_zoom(z, db, last_run_time, run_cutoff)
+      pending_parents = load_pending_parent_coords(parent_z, db)
+      return true if all_tiles_z.empty? && pending_parents.empty?
 
       log_msg = last_run_time ? "loaded #{all_tiles_z.size} tiles for zoom #{z} (filtered by timestamp)" : "loaded #{all_tiles_z.size} tiles for zoom #{z}"
       LOGGER.info("TileReconstructor: #{log_msg}")
 
       parent_coords_set = calculate_parent_coords(all_tiles_z)
+      parent_coords_set.merge(pending_parents)
       LOGGER.info("TileReconstructor: calculated #{parent_coords_set.size} unique parents for zoom #{parent_z}")
 
       processed_count = 0
@@ -183,7 +204,7 @@ class TileReconstructor
         break unless @running
 
         begin
-          generated, invalid_coords = process_parent(parent_coords, z, parent_z, db, downsample_opts, minzoom)
+          generated, invalid_coords = process_parent(parent_coords, z, parent_z, db, downsample_opts)
           generated_count += 1 if generated
           invalid_tiles_coords.concat(invalid_coords) if invalid_coords.any?
           processed_count += 1
@@ -196,7 +217,7 @@ class TileReconstructor
         end
       end
 
-      cleanup_invalid_tiles(invalid_tiles_coords, db) if invalid_tiles_coords.any?
+      cleanup_successful = invalid_tiles_coords.empty? || cleanup_invalid_tiles(invalid_tiles_coords, db)
 
       span&.add_attributes(
         parent_zoom: parent_z,
@@ -212,16 +233,18 @@ class TileReconstructor
         "parent_zoom=#{parent_z} processed=#{processed_count} generated=#{generated_count} " \
         "invalid=#{invalid_tiles_coords.size} errors=#{error_count}"
       )
+
+      error_count.zero? && cleanup_successful
     end
   end
 
   # Processes single parent tile: loads parent + children, validates, decides, generates
   # Returns: [generated, invalid_tiles_coords] where generated is true/false and invalid_tiles_coords is array of invalid child tiles
-  def process_parent(parent_coords, z, parent_z, db, downsample_opts, minzoom)
+  def process_parent(parent_coords, z, parent_z, db, downsample_opts)
     px, py = parent_coords
     child_coords = calculate_child_coords(px, py)
 
-    parent_tile, children_tiles, grandparent_tile = load_parent_and_children(px, py, z, parent_z, child_coords, db, minzoom)
+    parent_tile, children_tiles = load_parent_and_children(px, py, z, parent_z, child_coords, db)
     parent_validation = validate_parent_tile(parent_tile)
     # parent_valid should be true only for :valid and :partial_transparent
     # false for :transparent, :invalid, :corrupted, or nil
@@ -230,25 +253,45 @@ class TileReconstructor
 
     children_data_array, used_count, invalid_tiles_coords = validate_children_tiles(children_tiles, child_coords)
 
+    if parent_validation == :valid && parent_tile&.dig(:generated) == TilePersistence::PENDING_RECONSTRUCTION && used_count > 0
+      clear_pending_generation_state(parent_tile, used_count, db)
+    end
+
     return [false, invalid_tiles_coords] unless should_generate_parent?(parent_tile, parent_valid, used_count, parent_partial_transparency)
 
-    generated = generate_and_save_parent(px, py, parent_z, children_data_array, used_count, downsample_opts, db, grandparent_tile, parent_tile, parent_validation)
+    generated = generate_and_save_parent(px, py, parent_z, children_data_array, used_count, downsample_opts, db, parent_tile, parent_validation)
     [generated, invalid_tiles_coords]
   end
 
-  def load_tiles_for_zoom(z, db, last_run_time = nil)
+  def load_tiles_for_zoom(z, db, last_run_time = nil, run_cutoff = nil)
     query = db[:tiles].where(zoom_level: z)
 
     if last_run_time
       last_run_utc = last_run_time.utc
       conditions = [
-        Sequel[:updated_at] > last_run_utc,
-        Sequel[:generated] => -5
+        Sequel.&(
+          Sequel[:updated_at] > last_run_utc,
+          run_cutoff ? Sequel[:updated_at] <= run_cutoff.utc : Sequel.lit('1 = 1')
+        ),
+        Sequel[:generated] => TilePersistence::PENDING_RECONSTRUCTION
       ]
       query = query.where { Sequel.|(*conditions) }
     end
 
-    query.select(:tile_column, :tile_row, :generated).to_a
+    tiles = query.select(:tile_column, :tile_row, :generated).to_a
+    known_coords = tiles.to_h { |tile| [[tile[:tile_column], tile[:tile_row]], true] }
+
+    @run_dirty_tiles_by_zoom&.fetch(z, Set.new)&.each do |x, y|
+      tiles << { tile_column: x, tile_row: y } unless known_coords[[x, y]]
+    end
+
+    tiles
+  end
+
+  def load_pending_parent_coords(parent_z, db)
+    db[:tiles]
+      .where(zoom_level: parent_z, generated: TilePersistence::PENDING_RECONSTRUCTION)
+      .select_map([:tile_column, :tile_row])
   end
 
   def calculate_parent_coords(all_tiles_z)
@@ -268,14 +311,8 @@ class TileReconstructor
     ]
   end
 
-  # Loads parent, children, and grandparent tiles from database in single query
-  # Grandparent is loaded without blob (only generated) for quality regeneration marking
-  # Returns: [parent_tile, children_tiles, grandparent_tile]
-  def load_parent_and_children(px, py, z, parent_z, child_coords, db, minzoom)
-    grandparent_z = parent_z - 1
-    gpx = px / 2
-    gpy = py / 2
-
+  # Loads parent and children from database in a single query
+  def load_parent_and_children(px, py, z, parent_z, child_coords, db)
     parent_condition = Sequel.&(
       Sequel[:zoom_level] => parent_z,
       Sequel[:tile_column] => px,
@@ -290,42 +327,21 @@ class TileReconstructor
       )
     end
 
-    conditions = [parent_condition, *child_conditions]
-
-    if grandparent_z >= minzoom
-      grandparent_condition = Sequel.&(
-        Sequel[:zoom_level] => grandparent_z,
-        Sequel[:tile_column] => gpx,
-        Sequel[:tile_row] => gpy
-      )
-      conditions << grandparent_condition
-    end
-
-    all_tiles = db[:tiles].where { Sequel.|(*conditions) }
+    all_tiles = db[:tiles].where { Sequel.|(parent_condition, *child_conditions) }
                           .select(:zoom_level, :tile_column, :tile_row, :tile_data, :generated)
                           .to_a
 
     parent_tile = all_tiles.find { |t| t[:zoom_level] == parent_z && t[:tile_column] == px && t[:tile_row] == py }
     children_tiles = all_tiles.select { |t| t[:zoom_level] == z }
-    grandparent_tile = grandparent_z >= minzoom ? all_tiles.find { |t| t[:zoom_level] == grandparent_z && t[:tile_column] == gpx && t[:tile_row] == gpy } : nil
 
-    [parent_tile, children_tiles, grandparent_tile]
+    [parent_tile, children_tiles]
   end
 
   def validate_parent_tile(parent_tile)
     return nil unless parent_tile
+    return :invalid if parent_tile[:generated] == -1
 
-    case parent_tile[:generated]
-    when 0
-      # For original tiles, validate the actual data
-      VipsTileValidator.validate(parent_tile[:tile_data], check_transparency: true)
-    when 1..4
-      :valid
-    when -1
-      :invalid
-    else
-      :valid
-    end
+    VipsTileValidator.validate(parent_tile[:tile_data], check_transparency: true)
   end
 
   def validate_children_tiles(children_tiles, child_coords)
@@ -354,34 +370,26 @@ class TileReconstructor
   def should_generate_parent?(parent_tile, parent_valid, used_count, parent_partial_transparency = false)
     return false if used_count == 0
 
-    return true if parent_partial_transparency
-
-    if parent_tile.nil?
-      true
-    elsif parent_tile[:generated] == 0
-      !parent_valid
-    elsif parent_tile[:generated] == -1
-      true
-    elsif parent_tile[:generated] == -5
-      true
-    elsif (1..4).include?(parent_tile[:generated])
-      used_count != parent_tile[:generated]
-    else
-      false
-    end
+    parent_tile.nil? || !parent_valid || parent_partial_transparency
   end
 
-  def generate_and_save_parent(px, py, parent_z, children_data_array, used_count, downsample_opts, db, grandparent_tile, parent_tile, parent_validation)
+  def generate_and_save_parent(px, py, parent_z, children_data_array, used_count, downsample_opts, db, parent_tile, parent_validation)
     child_data = send(downsample_opts[:method], children_data_array, **downsample_opts[:args])
-    return false unless child_data
+    raise 'Downsampling returned no tile data' unless child_data
 
     new_data = if parent_validation == :partial_transparent && parent_tile
-                 composite_parent_over_child(parent_tile[:tile_data], child_data, downsample_opts[:args][:format])
+                 composite_parent_over_child(parent_tile[:tile_data], child_data, **composite_output_options(downsample_opts[:args]))
                else
                  child_data
                end
 
-    return false unless new_data
+    raise 'Compositing returned no tile data' unless new_data
+
+    existing_data = parent_tile && blob_to_string(parent_tile[:tile_data])
+    if existing_data == new_data
+      clear_pending_generation_state(parent_tile, used_count, db)
+      return false
+    end
 
     db.transaction do
       db[:tiles].insert_conflict(
@@ -399,26 +407,36 @@ class TileReconstructor
         generated: used_count,
         updated_at: Sequel.lit("datetime('now', 'utc')")
       )
-
-      mark_grandparent_for_regeneration(grandparent_tile, db) if grandparent_tile && grandparent_tile[:generated] != 0
     end
+    @run_dirty_tiles_by_zoom&.[](parent_z)&.add([px, py])
 
     true
   rescue => e
-    LOGGER.warn("event=reconstruction_generate_error source=#{@source_name} zoom=#{parent_z} x=#{px} y=#{py} error=#{e.message}")
-    false
+    raise "Failed to generate tile #{parent_z}/#{px}/#{py}: #{e.message}"
   end
 
-  def mark_grandparent_for_regeneration(grandparent_tile, db)
+  def blob_to_string(blob)
+    return blob if blob.is_a?(String)
+
+    blob.respond_to?(:read) ? blob.read : blob.to_s
+  end
+
+  def clear_pending_generation_state(parent_tile, used_count, db)
+    return if parent_tile[:generated] == used_count
+
     db[:tiles].where(
-      zoom_level: grandparent_tile[:zoom_level],
-      tile_column: grandparent_tile[:tile_column],
-      tile_row: grandparent_tile[:tile_row]
-    ).update(generated: -5, updated_at: Sequel.lit("datetime('now', 'utc')"))
+      zoom_level: parent_tile[:zoom_level],
+      tile_column: parent_tile[:tile_column],
+      tile_row: parent_tile[:tile_row]
+    ).update(generated: used_count)
+  end
+
+  def composite_output_options(downsample_args)
+    downsample_args.except(:kernel, :encoding, :method)
   end
 
   def cleanup_invalid_tiles(invalid_tiles_coords, db)
-    return if invalid_tiles_coords.empty?
+    return true if invalid_tiles_coords.empty?
 
     processed_count = 0
     error_count = 0
@@ -461,21 +479,19 @@ class TileReconstructor
     end
 
     LOGGER.info("event=reconstruction_cleanup_invalid_summary source=#{@source_name} processed=#{processed_count} errors=#{error_count}")
+    error_count.zero?
   end
 
 
-  def composite_parent_over_child(parent_data, child_data, format)
+  def composite_parent_over_child(parent_data, child_data, format:, **output_options)
     parent_img = Vips::Image.new_from_buffer(parent_data, '')
     child_img = Vips::Image.new_from_buffer(child_data, '')
 
+    parent_img = parent_img.bandjoin(255) if parent_img.bands < 4
     child_img = child_img.bandjoin(255) if child_img.bands < 4
 
-    # Composite parent over child using 'over' blend mode
-    result = parent_img.composite2(child_img, :over)
-    result.write_to_buffer(".#{format}")
-  rescue Vips::Error => e
-    LOGGER.warn("event=reconstruction_composite_error source=#{@source_name} error=#{e.message}")
-    nil
+    result = child_img.composite2(parent_img, :over)
+    result.write_to_buffer(".#{format}", **output_options)
   end
 
   def build_downsample_opts(route)

@@ -113,7 +113,7 @@ module DatabaseManager
       Integer :tile_column, null:false
       Integer :tile_row,    null:false
       File    :tile_data,   null:false
-      Integer :generated,   default: 0  # 0=original, 1=generated, 2=needs_regeneration
+      Integer :generated,   default: 0  # 0=original, 1..4=used children, -5=pending reconstruction
       DateTime :updated_at, default: Sequel.lit("datetime('now', 'utc')")
       unique [:zoom_level,:tile_column,:tile_row], name: :tile_index
       index :zoom_level, name: :idx_tiles_zoom_level

@@ -17,6 +17,7 @@ require_relative 'metadata_manager'
 require_relative 'background_tile_loader'
 require_relative 'database_manager'
 require_relative 'tile_reconstructor'
+require_relative 'tile_persistence'
 require_relative 'vips_tile_validator'
 require_relative 'geometry_tile_calculator'
 
@@ -427,15 +428,15 @@ helpers do
     route[:db][:tiles].where(zoom_level: z, tile_column: x, tile_row: tms).select(:tile_data, :generated).first
   end
 
-  def save_tile_to_db(route, z, x, tms, data)
-    route[:db][:tiles].insert_conflict(target: [:zoom_level, :tile_column, :tile_row],
-                                       update: {
-                                         tile_data: Sequel[:excluded][:tile_data],
-                                         updated_at: Sequel.lit("datetime('now', 'utc')")
-                                       })
-                      .insert(zoom_level: z, tile_column: x, tile_row: tms,
-                              tile_data: Sequel.blob(data),
-                              updated_at: Sequel.lit("datetime('now', 'utc')"))
+  def save_tile_to_db(route, z, x, tms, data, validation_result: nil)
+    TilePersistence.save_upstream_tile(
+      db: route[:db],
+      zoom_level: z,
+      tile_column: x,
+      tile_row: tms,
+      tile_data: data,
+      validation_result: validation_result
+    )
   end
 
   def blob_to_string(blob)
@@ -529,7 +530,7 @@ helpers do
             end
           end
 
-          save_tile_to_db(route, z, x, tms, result[:data])
+          save_tile_to_db(route, z, x, tms, result[:data], validation_result: validation_result)
           result[:data]
         end
       rescue => e
