@@ -44,6 +44,13 @@ html
       |   margin-bottom: 12px; 
       |   font-size: 16px;
       | }
+      | .stats-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+      | .stats-toolbar .section-title { margin-bottom: 0; }
+      | .stats-sync-status, .source-sync-status { color: #808080; font-size: 11px; margin: 8px 0 12px; }
+      | .source-sync-status.status-error { color: #f44747; }
+      | .source-refresh { min-width: 30px; font-size: 16px; line-height: 1; }
+      | .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+      | .btn:focus-visible { outline: 2px solid #6897bb; outline-offset: 2px; }
       | .status-ok { color: #6a9955; }
       | .status-error { color: #f44747; }
       | .status-warning { color: #ffc66d; }
