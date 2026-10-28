@@ -1,0 +1,23 @@
+{
+  "fixture": {
+    "path": "/fixture/:z/:x/:y",
+    "target": "http://127.0.0.1:8181/tiles/{z}/{x}/{y}.png",
+    "minzoom": 0,
+    "maxzoom": 3,
+    "mbtiles_file": "/tmp/tpc-spec.mbtiles",
+    "metadata": {
+      "format": "png",
+      "tileSize": 256,
+      "bounds": "-180,-85,180,85",
+      "type": "baselayer"
+    },
+    "autoscan": {
+      "enabled": true,
+      "max_scan_zoom": 0,
+      "daily_limit": 10
+    },
+    "validation": {
+      "enabled": false
+    }
+  }
+}

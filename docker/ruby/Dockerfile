@@ -1,6 +1,6 @@
-FROM ruby:3.4.10-slim-bookworm AS base
+FROM ruby:4.0.9-slim-bookworm AS base
 
-RUN apt update && apt --fix-missing install -y build-essential pkg-config libpq-dev curl cmake libssl-dev libengine-gost-openssl file libvips42 libyaml-dev libpng-dev \
+RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends build-essential pkg-config libpq-dev curl cmake libssl-dev libengine-gost-openssl file libvips42 libyaml-dev libpng-dev \
      && rm -rf /var/lib/apt/lists/*
 
 # Build LERC from source (v4.0.0)
@@ -21,6 +21,11 @@ COPY Gemfile* /app/
 RUN bundle install --jobs $(nproc) --retry=3 && \
     bundle clean --force && rm -rf /usr/local/bundle/cache/*
 
+# The bundle replaces the vulnerable default JSON gem (CVE-2026-33210).
+RUN rm -rf /usr/local/lib/ruby/4.0.0/json* /usr/local/lib/ruby/4.0.0/*-linux/json \
+    /usr/local/lib/ruby/gems/4.0.0/gems/json-* \
+    /usr/local/lib/ruby/gems/4.0.0/specifications/default/json-*.gemspec
+
 COPY . /app
 
 RUN cd /app/ext && ruby extconf.rb && make && \
@@ -33,25 +38,27 @@ RUN rake -T | grep 'rake build' && rake build || echo 'no build task'
 
 # used in .gitlab-ci.yml Tests.
 FROM base AS tests
-CMD bundle exec rspec
+ENV RACK_ENV=test
+COPY spec/fixtures/configs/ /app/configs/
+RUN --network=none bundle exec rspec
+CMD ["bundle", "exec", "rspec"]
 
-FROM ruby:3.4.10-slim-bookworm AS deploy
-RUN apt update && apt install --fix-missing -y bash curl libssl-dev libengine-gost-openssl wget libpq-dev file libvips42 libyaml-0-2 libpng16-16 libpcre2-8-0 \
+FROM ruby:4.0.9-slim-bookworm AS deploy
+RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends bash curl libssl-dev libengine-gost-openssl wget libpq-dev file libvips42 libyaml-0-2 libpng16-16 libpcre2-8-0 \
      && rm -rf /var/lib/apt/lists/*
 
-ARG RESOLV_VERSION=0.7.2
-RUN default_gem_dir="$(ruby -e 'print Gem.default_dir')" && \
-    GEM_HOME="${default_gem_dir}" GEM_PATH="${default_gem_dir}" gem install resolv -v "${RESOLV_VERSION}" --default --no-document && \
-    rm -f "${default_gem_dir}/specifications/default/resolv-0.7.1.gemspec" && \
-    ruby -rresolv -e "abort 'resolv version is outdated' if Gem.loaded_specs.fetch('resolv').version < Gem::Version.new('${RESOLV_VERSION}')"
-
 COPY --from=base /usr/local/bundle /usr/local/bundle
+
+# The bundle replaces the vulnerable default JSON gem (CVE-2026-33210).
+RUN rm -rf /usr/local/lib/ruby/4.0.0/json* /usr/local/lib/ruby/4.0.0/*-linux/json \
+    /usr/local/lib/ruby/gems/4.0.0/gems/json-* \
+    /usr/local/lib/ruby/gems/4.0.0/specifications/default/json-*.gemspec
 COPY --from=base /usr/local/lib/libLerc.so* /usr/local/lib/
 
 COPY --from=base /app/ext/ /app/ext/
 
-# Force start & wait test Stage
-# COPY --from=tests /app/src/spec/results /app/src/spec/results
+# The runtime image requires the test suite to pass.
+COPY --from=tests /app/spec/results /app/spec/results
 
 COPY --from=base /app /app
 
@@ -66,6 +73,6 @@ ENV RUBY_YJIT_ENABLE=1 \
 WORKDIR /app
 
 # --start_period=5s (Unknown flag: start_period)
-#HEALTHCHECK --interval=15s --timeout=2s --retries=3 CMD curl --fail http://127.0.0.1:$PORT/healthcheck || exit 1
+HEALTHCHECK --interval=15s --timeout=2s --retries=3 CMD curl --fail http://127.0.0.1:$PORT/healthcheck || exit 1
 CMD bundle exec rackup -o 0.0.0.0 -p $PORT -s falcon
 # docker-compose build --progress plain

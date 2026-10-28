@@ -1,5 +1,7 @@
 source 'https://rubygems.org'
 
+ruby '4.0.9'
+
 gem 'sinatra'
 gem 'slim'
 gem 'async'
@@ -8,8 +10,8 @@ gem 'pg'
 gem 'sqlite3'
 gem 'autoforme'
 
-gem 'rack', '~> 3.1.13'
-gem 'rackup', '~> 2.2.1'
+gem 'rack', '~> 3.2.7'
+gem 'rackup', '~> 2.3.1'
 gem 'falcon'
 
 gem 'stack-service-base'

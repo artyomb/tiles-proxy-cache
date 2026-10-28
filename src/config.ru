@@ -847,4 +847,7 @@ at_exit do
   end
 end
 
+trap('TERM') { exit(0) }
+trap('INT') { exit(0) }
+
 run Sinatra::Application
